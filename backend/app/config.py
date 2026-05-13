@@ -34,6 +34,7 @@ class Settings(BaseSettings):
     # Same values as your frontend .env.local
     github_client_id: str
     github_client_secret: str
+    github_token: str = ""   # Optional — increases rate limit from 60 to 5000/hr
 
     # ── JWT (your own tokens) ─────────────────────────────────
     # Used to sign the tokens you give to your frontend

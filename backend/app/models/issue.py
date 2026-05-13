@@ -14,7 +14,7 @@
 import uuid
 from datetime import datetime
 from sqlalchemy import (
-    Column, String, Integer, DateTime, Text,
+    Column, String, Integer, BigInteger, DateTime, Text,
     ForeignKey, Float, Boolean
 )
 from sqlalchemy.dialects.postgresql import UUID, JSONB
@@ -29,7 +29,7 @@ class Issue(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, index=True)
 
     # ── GitHub identifiers ───────────────────────────────────
-    github_issue_id = Column(Integer, unique=True, nullable=False, index=True)
+    github_issue_id = Column(BigInteger, unique=True, nullable=False, index=True)
     github_issue_number = Column(Integer, nullable=False)
 
     # Which repo this issue belongs to
