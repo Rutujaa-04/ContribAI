@@ -20,6 +20,7 @@
 
 import httpx
 from datetime import datetime
+from app.services.gemini import analyze_issue
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -431,3 +432,85 @@ def unsave_issue(
     db.commit()
 
     return {"message": "Issue removed"}
+
+
+# ============================================================
+# ADD THESE TO THE BOTTOM OF app/routers/issues.py
+# ============================================================
+# Also add this import at the TOP of issues.py:
+#   from datetime import datetime  (already there)
+#   from app.services.gemini import analyze_issue  (ADD THIS)
+# ============================================================
+
+
+# ── GET /issues/{issue_id}/analysis ───────────────────────────
+@router.get("/{issue_id}/analysis")
+async def get_issue_analysis(
+    issue_id: str,
+    force_refresh: bool = False,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Returns AI analysis for an issue.
+    
+    If analysis is cached in the DB and less than 7 days old,
+    returns the cached version (fast, no API call).
+    
+    If not cached or force_refresh=True, calls Gemini to generate
+    a fresh analysis and caches it.
+    """
+    from app.services.gemini import analyze_issue
+
+    issue = db.query(Issue).filter(Issue.id == issue_id).first()
+    if not issue:
+        raise HTTPException(status_code=404, detail="Issue not found")
+
+    # Check if we have a fresh cached analysis
+    if (
+        not force_refresh
+        and issue.analysis_cache
+        and issue.analysis_generated_at
+    ):
+        from datetime import timedelta
+        age = datetime.utcnow() - issue.analysis_generated_at
+        if age.days < 7:
+            return {
+                "issue_id": issue_id,
+                "cached": True,
+                "generated_at": issue.analysis_generated_at.isoformat(),
+                **issue.analysis_cache,
+            }
+
+    # No cache or stale — call Gemini
+    if not settings.google_api_key:
+        raise HTTPException(
+            status_code=503,
+            detail="AI analysis not configured. Add GOOGLE_API_KEY to .env",
+        )
+
+    analysis = await analyze_issue(
+        title=issue.title,
+        body=issue.body or "",
+        repo_owner=issue.repo_owner,
+        repo_name=issue.repo_name,
+        labels=issue.labels or [],
+    )
+
+    if not analysis:
+        raise HTTPException(
+            status_code=502,
+            detail="AI analysis failed. Please try again.",
+        )
+
+    # Cache the result in DB
+    issue.analysis_cache = analysis
+    issue.analysis_generated_at = datetime.utcnow()
+    db.commit()
+
+    return {
+        "issue_id": issue_id,
+        "cached": False,
+        "generated_at": issue.analysis_generated_at.isoformat(),
+        **analysis,
+    }

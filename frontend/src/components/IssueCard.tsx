@@ -12,6 +12,7 @@
 
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import { Bookmark, BookmarkCheck, Clock, MessageSquare, ExternalLink, GitBranch } from "lucide-react";
 
@@ -155,16 +156,14 @@ export default function IssueCard({ issue, onSave }: IssueCardProps) {
       </div>
 
       {/* ── Title ── */}
-      <a
-        href={issue.html_url}
-        target="_blank"
-        rel="noopener noreferrer"
+      <Link
+        href={`/issues/${issue.id}`}
         className="block mb-3"
       >
         <h3 className="text-sm font-semibold text-gray-900 leading-snug group-hover:text-blue-600 transition-colors line-clamp-2">
           {issue.title}
         </h3>
-      </a>
+      </Link>
 
       {/* ── Body preview ── */}
       {issue.body && (
