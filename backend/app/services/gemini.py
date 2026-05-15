@@ -27,9 +27,9 @@ import os
 import json
 import re
 import asyncio
-
 from typing import Optional
 from openai import OpenAI
+from app.config import settings
 
 
 ANALYSIS_PROMPT = """You are an expert software engineer helping a developer understand and contribute to an open source issue.
@@ -68,18 +68,12 @@ Respond with ONLY a valid JSON object (no markdown, no code blocks, just raw JSO
 }}
 
 Rules:
-- file_map: 2-5 files max.
-- implementation_steps: 3-6 steps max.
+- file_map: 2-5 files max. Use realistic paths based on the repo and issue context. relevance must be "primary", "secondary", or "reference"
+- implementation_steps: 3-6 steps max. Be concrete and actionable.
 - edge_cases: 2-4 items max.
-- Keep language simple.
-- Return ONLY JSON.
-"""
-
-
-client = OpenAI(
-    base_url="https://openrouter.ai/api/v1",
-    api_key=os.getenv("OPENROUTER_API_KEY"),
-)
+- Keep language simple — the reader may be a beginner.
+- If the issue body is vague, make reasonable assumptions based on the title and labels.
+- Return ONLY the JSON. No explanation before or after."""
 
 
 async def analyze_issue(
@@ -90,13 +84,21 @@ async def analyze_issue(
     labels: list,
     max_retries: int = 3,
 ) -> Optional[dict]:
+    """
+    Calls OpenRouter (DeepSeek free model) to analyze a GitHub issue.
+    Automatically retries on rate limit errors with backoff.
+    Returns a structured dict or None if all retries fail.
+    """
+    # Create client here (not at module level) so the API key is
+    # already loaded from .env when this function is called
+    client = OpenAI(
+        base_url="https://openrouter.ai/api/v1",
+        api_key=settings.openrouter_api_key,
+    )
 
-    label_str = ", ".join(
-        [l.get("name", "") for l in labels]
-    ) if labels else "none"
+    label_str = ", ".join([l.get("name", "") for l in labels]) if labels else "none"
 
     truncated_body = (body or "")[:2000]
-
     if len(body or "") > 2000:
         truncated_body += "\n... (truncated)"
 
@@ -111,24 +113,22 @@ async def analyze_issue(
     raw_text = ""
 
     for attempt in range(1, max_retries + 1):
-
         try:
             print(f"🤖 OpenRouter attempt {attempt}/{max_retries}...")
 
             response = client.chat.completions.create(
-                model="deepseek/deepseek-chat:free",
-                messages=[
-                    {
-                        "role": "user",
-                        "content": prompt
-                    }
-                ],
+                model="minimax/minimax-m2.5:free",
+                messages=[{"role": "user", "content": prompt}],
                 temperature=0.3,
             )
 
-            raw_text = response.choices[0].message.content.strip()
+            raw_text = response.choices[0].message.content
+            if not raw_text:
+                print(f"❌ Empty response from model on attempt {attempt}")
+                continue
+            raw_text = raw_text.strip()
 
-            # Remove markdown fences if model adds them
+            # Clean up markdown fences if model adds them
             if raw_text.startswith("```"):
                 raw_text = re.sub(r"^```(?:json)?\n?", "", raw_text)
                 raw_text = re.sub(r"\n?```$", "", raw_text)
@@ -136,61 +136,37 @@ async def analyze_issue(
 
             analysis = json.loads(raw_text)
 
+            # Ensure all required fields exist
             required_fields = [
-                "plain_explanation",
-                "background",
-                "file_map",
-                "implementation_steps",
-                "edge_cases",
-                "test_hints"
+                "plain_explanation", "background", "file_map",
+                "implementation_steps", "edge_cases", "test_hints"
             ]
-
             for field in required_fields:
                 if field not in analysis:
-                    analysis[field] = (
-                        ""
-                        if field in (
-                            "plain_explanation",
-                            "background",
-                            "test_hints"
-                        )
-                        else []
-                    )
+                    analysis[field] = "" if field in ("plain_explanation", "background", "test_hints") else []
 
             print(f"✅ Analysis succeeded on attempt {attempt}")
-
             return analysis
 
         except json.JSONDecodeError as e:
-
-            print(f"❌ Invalid JSON: {e}")
-            print(raw_text[:500])
-
-            return None
+            print(f"❌ Invalid JSON on attempt {attempt}: {e}")
+            print(f"Raw response: {raw_text[:500]}")
+            return None  # JSON errors won't be fixed by retrying
 
         except Exception as e:
-
             error_str = str(e)
-
             print(f"❌ Attempt {attempt} failed: {error_str}")
 
-            if (
-                "429" in error_str
-                or "rate limit" in error_str.lower()
-            ):
-
-                wait_seconds = 30 * attempt
-
-                print(
-                    f"⏳ Rate limited. Waiting {wait_seconds}s..."
-                )
-
+            if "429" in error_str or "rate limit" in error_str.lower():
+                # Extract retry_after from error if available
+                import re as re_mod
+                match = re_mod.search(r"retry_after_seconds': (\d+)", error_str)
+                wait_seconds = int(match.group(1)) + 5 if match else 30 * attempt
+                print(f"⏳ Rate limited — waiting {wait_seconds}s...")
                 await asyncio.sleep(wait_seconds)
-
                 continue
 
-            return None
+            return None  # Non-retryable error
 
     print("❌ All retries failed")
-
     return None

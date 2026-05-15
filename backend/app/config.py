@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     # Google Gemini API key — get from aistudio.google.com
     # Used for both LLM calls and embeddings (free tier)
     google_api_key: str = ""          # Optional until Week 2
+    openrouter_api_key: str = ""
 
     # ── GitHub OAuth ──────────────────────────────────────────
     # Same values as your frontend .env.local
