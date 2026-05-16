@@ -12,6 +12,7 @@
 // - Link to GitHub
 // ============================================================
 
+import RepoOverview from "@/components/RepoOverview";
 import { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { apiClient } from "@/lib/api-client";
