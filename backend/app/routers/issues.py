@@ -19,8 +19,8 @@
 # ============================================================
 
 import httpx
-from datetime import datetime
-from app.services.gemini import analyze_issue
+from datetime import datetime, timedelta
+# from app.services.gemini import analyze_issue
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
