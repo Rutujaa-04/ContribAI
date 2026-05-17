@@ -11,9 +11,7 @@ from app.database import engine, Base
 
 from app.models import User, Issue, UserIssue  # noqa: F401
 
-from app.routers import auth
-from app.routers import issues
-from app.routers import users
+from app.routers import auth, issues, users, repos
 
 
 @asynccontextmanager
@@ -49,6 +47,7 @@ app.add_middleware(
 app.include_router(auth.router, prefix="/auth", tags=["Authentication"])
 app.include_router(issues.router, prefix="/issues", tags=["Issues"])
 app.include_router(users.router, prefix="/users", tags=["Users"])
+app.include_router(repos.router, prefix="/repos", tags=["Repositories"])
 
 
 @app.get("/", tags=["Health"])
