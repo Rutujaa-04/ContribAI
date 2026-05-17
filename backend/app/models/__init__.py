@@ -20,3 +20,9 @@ from app.models.issue import Issue, UserIssue
 # from app.models.repository import Repository
 
 __all__ = ["User", "Issue", "UserIssue"]
+
+from app.models.user import User
+from app.models.issue import Issue, UserIssue
+from app.models.repository import Repository, CodeChunk
+
+__all__ = ["User", "Issue", "UserIssue", "Repository", "CodeChunk"]

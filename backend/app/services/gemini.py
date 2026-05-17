@@ -13,9 +13,6 @@
 #    - implementation_steps: ordered checklist
 #    - edge_cases: things to watch out for
 #    - test_hints: what to test
-#
-# Uses google-generativeai (free tier — no credit card needed)
-# Install: pip install google-generativeai
 # Get key: https://aistudio.google.com (free)
 # ============================================================
 

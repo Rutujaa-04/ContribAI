@@ -15,7 +15,7 @@
 #   print(settings.database_url)
 # ============================================================
 
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 from functools import lru_cache
 
 
@@ -52,12 +52,17 @@ class Settings(BaseSettings):
     app_name: str = "ContribAI"
     debug: bool = True                 # Set False in production
 
-    class Config:
+    # class Config:
         # Tell pydantic-settings to read from .env file
-        env_file = ".env"
-        env_file_encoding = "utf-8"
+        # env_file = ".env"
+        # env_file_encoding = "utf-8"
         # Allow extra fields in .env without crashing
-        extra = "ignore"
+        # extra = "ignore"
+
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        extra="ignore"
+    )    
 
 
 # ── Singleton pattern ───────────────────────────────────────
