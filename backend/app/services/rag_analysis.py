@@ -163,7 +163,7 @@ async def analyze_issue_with_rag(
         try:
             print(f"🤖 RAG analysis attempt {attempt}/{max_retries} (chunks: {len(chunks)})...")
             resp = client.chat.completions.create(
-                model="deepseek/deepseek-chat:free",
+                model="openrouter/free",
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.3,
             )
