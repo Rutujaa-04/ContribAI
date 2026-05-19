@@ -10,34 +10,36 @@
 //   implementation checklist, edge cases, test hints
 // - Save / unsave button
 // - Link to GitHub
+// On load: fires POST /repos/ingest in background so the repo's
+// code chunks are ready in pgvector when the user clicks Analyze.
+// A small status pill shows "Indexing repo..." while it runs.
 // ============================================================
-
-import RepoOverview from "@/components/RepoOverview";
-import { useState, useEffect } from "react";
+ 
+import { useState, useEffect, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { apiClient } from "@/lib/api-client";
 import {
   ArrowLeft, ExternalLink, Bookmark, BookmarkCheck,
   Brain, GitBranch, Clock, MessageSquare, ChevronRight,
   FileCode, CheckSquare, Square, AlertTriangle, TestTube,
-  Loader2, RefreshCw, Info
+  Loader2, RefreshCw, Info, Cpu, CheckCircle2
 } from "lucide-react";
-
+ 
 // ── Types ─────────────────────────────────────────────────────
-
+ 
 interface FileMapItem {
   path: string;
   relevance: "primary" | "secondary" | "reference";
   reason: string;
 }
-
+ 
 interface ImplementationStep {
   order: number;
   title: string;
   description: string;
   completed?: boolean;
 }
-
+ 
 interface Analysis {
   plain_explanation: string;
   background: string;
@@ -47,8 +49,10 @@ interface Analysis {
   test_hints: string;
   generated_at: string;
   cached: boolean;
+  used_rag?: boolean;
+  chunks_retrieved?: number;
 }
-
+ 
 interface Issue {
   id: string;
   github_issue_number: number;
@@ -70,29 +74,31 @@ interface Issue {
     checklist_progress: Record<string, boolean>;
   } | null;
 }
-
+ 
+type IngestStatus = "idle" | "indexing" | "ready" | "cached" | "failed";
+ 
 // ── Helpers ───────────────────────────────────────────────────
-
+ 
 const DIFFICULTY_STYLES: Record<string, string> = {
   beginner: "bg-green-100 text-green-800 border border-green-200",
   intermediate: "bg-blue-100 text-blue-800 border border-blue-200",
   advanced: "bg-purple-100 text-purple-800 border border-purple-200",
   unknown: "bg-gray-100 text-gray-600 border border-gray-200",
 };
-
+ 
 const RELEVANCE_STYLES: Record<string, string> = {
   primary: "bg-blue-50 text-blue-700 border-blue-200",
   secondary: "bg-gray-50 text-gray-600 border-gray-200",
   reference: "bg-yellow-50 text-yellow-700 border-yellow-200",
 };
-
+ 
 function labelStyle(hexColor: string) {
   return {
     backgroundColor: `#${hexColor}22`,
     color: `#${hexColor}`,
   };
 }
-
+ 
 function timeAgo(dateStr: string): string {
   const date = new Date(dateStr);
   const diffDays = Math.floor((Date.now() - date.getTime()) / 86400000);
@@ -102,8 +108,7 @@ function timeAgo(dateStr: string): string {
   if (diffDays < 365) return `${Math.floor(diffDays / 30)}mo ago`;
   return `${Math.floor(diffDays / 365)}y ago`;
 }
-
-// Simple markdown-ish body renderer (strips md syntax for readability)
+ 
 function renderBody(body: string): string {
   return body
     .replace(/#{1,6}\s/g, "")
@@ -111,14 +116,52 @@ function renderBody(body: string): string {
     .replace(/`(.*?)`/g, "$1")
     .trim();
 }
-
+ 
+// ── Ingest status pill ────────────────────────────────────────
+ 
+function IngestPill({ status }: { status: IngestStatus }) {
+  if (status === "idle") return null;
+ 
+  const config = {
+    indexing: {
+      text: "Indexing repo...",
+      className: "bg-amber-50 text-amber-700 border-amber-200",
+      icon: <Loader2 className="w-3 h-3 animate-spin" />,
+    },
+    ready: {
+      text: "Repo indexed",
+      className: "bg-green-50 text-green-700 border-green-200",
+      icon: <CheckCircle2 className="w-3 h-3" />,
+    },
+    cached: {
+      text: "Repo index cached",
+      className: "bg-gray-50 text-gray-500 border-gray-200",
+      icon: <CheckCircle2 className="w-3 h-3" />,
+    },
+    failed: {
+      text: "Index unavailable",
+      className: "bg-red-50 text-red-600 border-red-200",
+      icon: <Info className="w-3 h-3" />,
+    },
+  }[status];
+ 
+  return (
+    <span
+      className={`inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full border ${config.className}`}
+    >
+      {config.icon}
+      {config.text}
+    </span>
+  );
+}
+ 
 // ── Component ─────────────────────────────────────────────────
-
+ 
 export default function IssueDetailPage() {
   const params = useParams();
   const router = useRouter();
   const issueId = params.id as string;
-
+ 
   const [issue, setIssue] = useState<Issue | null>(null);
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
   const [loadingIssue, setLoadingIssue] = useState(true);
@@ -127,7 +170,11 @@ export default function IssueDetailPage() {
   const [savingIssue, setSavingIssue] = useState(false);
   const [checklist, setChecklist] = useState<Record<string, boolean>>({});
   const [error, setError] = useState<string | null>(null);
-
+  const [ingestStatus, setIngestStatus] = useState<IngestStatus>("idle");
+ 
+  // Prevent double-firing ingestion in React strict mode
+  const ingestFiredRef = useRef(false);
+ 
   // ── Load issue on mount ────────────────────────────────────
   useEffect(() => {
     async function loadIssue() {
@@ -136,13 +183,11 @@ export default function IssueDetailPage() {
         const data: Issue = res.data;
         setIssue(data);
         setSaved(!!data.user_issue);
-
-        // If analysis already cached, show it immediately
+ 
         if (data.analysis) {
           setAnalysis(data.analysis as Analysis);
         }
-
-        // Restore checklist progress from DB
+ 
         if (data.user_issue?.checklist_progress) {
           setChecklist(data.user_issue.checklist_progress);
         }
@@ -154,7 +199,39 @@ export default function IssueDetailPage() {
     }
     loadIssue();
   }, [issueId]);
-
+ 
+  // ── Background ingestion trigger ───────────────────────────
+  // Fires once after the issue loads, so pgvector has chunks ready
+  // before the user clicks "Analyze with AI".
+  useEffect(() => {
+    if (!issue || ingestFiredRef.current) return;
+    ingestFiredRef.current = true;
+ 
+    async function triggerIngestion() {
+      setIngestStatus("indexing");
+      try {
+        const res = await apiClient.post("/repos/ingest", {
+          owner: issue!.repo_owner,
+          repo: issue!.repo_name,
+        });
+        // Backend returns status: "cached" if already indexed within 24h
+        const status = res.data?.status;
+        setIngestStatus(status === "cached" ? "cached" : "ready");
+ 
+        // Hide "cached" status after 3s — it's not very interesting
+        if (status === "cached") {
+          setTimeout(() => setIngestStatus("idle"), 3000);
+        }
+      } catch (e) {
+        // Non-critical — analysis still works without RAG context
+        setIngestStatus("failed");
+        setTimeout(() => setIngestStatus("idle"), 4000);
+      }
+    }
+ 
+    triggerIngestion();
+  }, [issue]);
+ 
   // ── Run AI analysis ────────────────────────────────────────
   const handleAnalyze = async (forceRefresh = false) => {
     setLoadingAnalysis(true);
@@ -171,7 +248,7 @@ export default function IssueDetailPage() {
       setLoadingAnalysis(false);
     }
   };
-
+ 
   // ── Save / unsave issue ────────────────────────────────────
   const handleSave = async () => {
     setSavingIssue(true);
@@ -184,29 +261,28 @@ export default function IssueDetailPage() {
         setSaved(true);
       }
     } catch (e) {
-      // Silently fail — don't break the UI
+      // Silently fail
     } finally {
       setSavingIssue(false);
     }
   };
-
+ 
   // ── Toggle checklist step ──────────────────────────────────
   const toggleStep = async (stepKey: string) => {
     const updated = { ...checklist, [stepKey]: !checklist[stepKey] };
     setChecklist(updated);
-
-    // Persist to backend if issue is saved
+ 
     if (saved) {
       try {
         await apiClient.patch(`/users/me/contributions/${issueId}`, {
           checklist_progress: updated,
         });
       } catch (e) {
-        // Non-critical — checklist state is still updated locally
+        // Non-critical
       }
     }
   };
-
+ 
   // ── Loading state ──────────────────────────────────────────
   if (loadingIssue) {
     return (
@@ -215,7 +291,7 @@ export default function IssueDetailPage() {
       </div>
     );
   }
-
+ 
   if (!issue) {
     return (
       <div className="text-center py-16 text-gray-500">
@@ -226,16 +302,16 @@ export default function IssueDetailPage() {
       </div>
     );
   }
-
+ 
   const completedSteps = analysis
     ? analysis.implementation_steps.filter((s) => checklist[`step_${s.order}`]).length
     : 0;
   const totalSteps = analysis?.implementation_steps.length || 0;
-
+ 
   // ── Render ─────────────────────────────────────────────────
   return (
     <div className="max-w-4xl mx-auto">
-
+ 
       {/* ── Back button ── */}
       <button
         onClick={() => router.back()}
@@ -244,10 +320,10 @@ export default function IssueDetailPage() {
         <ArrowLeft className="w-4 h-4" />
         Back to discover
       </button>
-
+ 
       {/* ── Issue header ── */}
       <div className="bg-white rounded-2xl border border-gray-100 p-6 mb-4">
-
+ 
         {/* Repo + meta row */}
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
@@ -259,12 +335,12 @@ export default function IssueDetailPage() {
             </div>
             <span className="text-xs text-gray-400">#{issue.github_issue_number}</span>
           </div>
-
+ 
           <div className="flex items-center gap-2">
             <span className={`text-xs font-medium px-2.5 py-1 rounded-full ${DIFFICULTY_STYLES[issue.difficulty] || DIFFICULTY_STYLES.unknown}`}>
               {issue.difficulty.charAt(0).toUpperCase() + issue.difficulty.slice(1)}
             </span>
-
+ 
             {/* Save button */}
             <button
               onClick={handleSave}
@@ -284,7 +360,7 @@ export default function IssueDetailPage() {
               )}
               {saved ? "Saved" : "Save"}
             </button>
-
+ 
             {/* GitHub link */}
             <a
               href={issue.html_url}
@@ -297,12 +373,12 @@ export default function IssueDetailPage() {
             </a>
           </div>
         </div>
-
+ 
         {/* Title */}
         <h1 className="text-xl font-bold text-gray-900 mb-3 leading-snug">
           {issue.title}
         </h1>
-
+ 
         {/* Labels */}
         {issue.labels.length > 0 && (
           <div className="flex flex-wrap gap-1.5 mb-4">
@@ -317,7 +393,7 @@ export default function IssueDetailPage() {
             ))}
           </div>
         )}
-
+ 
         {/* Meta row */}
         <div className="flex items-center gap-4 text-xs text-gray-400 pb-4 border-b border-gray-50 mb-4">
           {issue.estimated_hours && (
@@ -332,7 +408,7 @@ export default function IssueDetailPage() {
           </span>
           <span>Opened {timeAgo(issue.created_at)}</span>
         </div>
-
+ 
         {/* Body */}
         {issue.body && (
           <div className="text-sm text-gray-600 leading-relaxed whitespace-pre-wrap max-h-64 overflow-y-auto">
@@ -340,10 +416,10 @@ export default function IssueDetailPage() {
           </div>
         )}
       </div>
-
+ 
       {/* ── AI Analysis panel ── */}
       <div className="bg-white rounded-2xl border border-gray-100 p-6">
-
+ 
         {/* Panel header */}
         <div className="flex items-center justify-between mb-5">
           <div className="flex items-center gap-2">
@@ -352,29 +428,33 @@ export default function IssueDetailPage() {
             </div>
             <div>
               <h2 className="text-sm font-semibold text-gray-900">AI Analysis</h2>
-              <p className="text-xs text-gray-400">Powered by Gemini</p>
+              <p className="text-xs text-gray-400">Powered by OpenRouter</p>
             </div>
           </div>
-
-          {analysis && (
-            <button
-              onClick={() => handleAnalyze(true)}
-              disabled={loadingAnalysis}
-              className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-gray-700 transition-colors"
-            >
-              <RefreshCw className={`w-3 h-3 ${loadingAnalysis ? "animate-spin" : ""}`} />
-              Refresh
-            </button>
-          )}
+ 
+          {/* Right side: ingest pill + refresh */}
+          <div className="flex items-center gap-3">
+            <IngestPill status={ingestStatus} />
+            {analysis && (
+              <button
+                onClick={() => handleAnalyze(true)}
+                disabled={loadingAnalysis}
+                className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-gray-700 transition-colors"
+              >
+                <RefreshCw className={`w-3 h-3 ${loadingAnalysis ? "animate-spin" : ""}`} />
+                Refresh
+              </button>
+            )}
+          </div>
         </div>
-
+ 
         {/* Error */}
         {error && (
           <div className="bg-red-50 border border-red-200 rounded-xl p-3 mb-4 text-sm text-red-700">
             {error}
           </div>
         )}
-
+ 
         {/* Not yet analyzed */}
         {!analysis && !loadingAnalysis && (
           <div className="text-center py-10">
@@ -385,40 +465,55 @@ export default function IssueDetailPage() {
               Get AI-powered guidance for this issue
             </p>
             <p className="text-xs text-gray-400 mb-5 max-w-sm mx-auto">
-              Gemini will explain what needs to be done, map the relevant files,
+              AI will explain what needs to be done, map the relevant files,
               and give you a step-by-step implementation plan.
             </p>
             <button
               onClick={() => handleAnalyze()}
-              className="inline-flex items-center gap-2 bg-purple-600 hover:bg-purple-700 text-white font-medium px-5 py-2.5 rounded-xl transition-colors text-sm"
+              disabled={ingestStatus === "indexing"}
+              className="inline-flex items-center gap-2 bg-purple-600 hover:bg-purple-700 disabled:bg-purple-300 text-white font-medium px-5 py-2.5 rounded-xl transition-colors text-sm"
+              title={ingestStatus === "indexing" ? "Waiting for repo to finish indexing..." : undefined}
             >
               <Brain className="w-4 h-4" />
-              Analyze with AI
+              {ingestStatus === "indexing" ? "Indexing repo first..." : "Analyze with AI"}
             </button>
+            {ingestStatus === "indexing" && (
+              <p className="text-xs text-amber-600 mt-2">
+                Indexing the repo for richer analysis — this takes ~30s
+              </p>
+            )}
           </div>
         )}
-
+ 
         {/* Loading analysis */}
         {loadingAnalysis && (
           <div className="text-center py-10">
             <Loader2 className="w-8 h-8 animate-spin text-purple-400 mx-auto mb-3" />
-            <p className="text-sm text-gray-500">Analyzing issue with Gemini...</p>
+            <p className="text-sm text-gray-500">Analyzing issue...</p>
             <p className="text-xs text-gray-400 mt-1">This takes 5–15 seconds</p>
           </div>
         )}
-
+ 
         {/* Analysis results */}
         {analysis && !loadingAnalysis && (
           <div className="space-y-6">
-
-            {/* Cache indicator */}
-            {analysis.cached && (
-              <div className="flex items-center gap-1.5 text-xs text-gray-400 bg-gray-50 rounded-lg px-3 py-2">
-                <Info className="w-3 h-3" />
-                Cached analysis from {timeAgo(analysis.generated_at)}
-              </div>
-            )}
-
+ 
+            {/* Metadata row: cache + RAG indicator */}
+            <div className="flex items-center gap-2 flex-wrap">
+              {analysis.cached && (
+                <div className="flex items-center gap-1.5 text-xs text-gray-400 bg-gray-50 rounded-lg px-3 py-2">
+                  <Info className="w-3 h-3" />
+                  Cached analysis from {timeAgo(analysis.generated_at)}
+                </div>
+              )}
+              {analysis.used_rag && (
+                <div className="flex items-center gap-1.5 text-xs text-green-700 bg-green-50 border border-green-200 rounded-lg px-3 py-2">
+                  <Cpu className="w-3 h-3" />
+                  Analyzed with repo context ({analysis.chunks_retrieved} code chunks)
+                </div>
+              )}
+            </div>
+ 
             {/* Plain explanation */}
             <div>
               <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
@@ -428,7 +523,7 @@ export default function IssueDetailPage() {
                 {analysis.plain_explanation}
               </p>
             </div>
-
+ 
             {/* Background */}
             <div>
               <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
@@ -438,7 +533,7 @@ export default function IssueDetailPage() {
                 {analysis.background}
               </p>
             </div>
-
+ 
             {/* File map */}
             {analysis.file_map?.length > 0 && (
               <div>
@@ -468,7 +563,7 @@ export default function IssueDetailPage() {
                 </div>
               </div>
             )}
-
+ 
             {/* Implementation checklist */}
             {analysis.implementation_steps?.length > 0 && (
               <div>
@@ -482,7 +577,7 @@ export default function IssueDetailPage() {
                     </span>
                   )}
                 </div>
-
+ 
                 {/* Progress bar */}
                 {totalSteps > 0 && (
                   <div className="h-1.5 bg-gray-100 rounded-full mb-3 overflow-hidden">
@@ -492,7 +587,7 @@ export default function IssueDetailPage() {
                     />
                   </div>
                 )}
-
+ 
                 <div className="space-y-2">
                   {analysis.implementation_steps.map((step) => {
                     const key = `step_${step.order}`;
@@ -526,7 +621,7 @@ export default function IssueDetailPage() {
                 </div>
               </div>
             )}
-
+ 
             {/* Edge cases */}
             {analysis.edge_cases?.length > 0 && (
               <div>
@@ -543,7 +638,7 @@ export default function IssueDetailPage() {
                 </div>
               </div>
             )}
-
+ 
             {/* Test hints */}
             {analysis.test_hints && (
               <div>
@@ -558,7 +653,7 @@ export default function IssueDetailPage() {
                 </div>
               </div>
             )}
-
+ 
           </div>
         )}
       </div>
