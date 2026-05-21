@@ -56,46 +56,54 @@ interface Stats {
 
 // ── Constants ─────────────────────────────────────────────────
 
+// ── Constants ─────────────────────────────────────────────────
+
 const STATUS_CONFIG: Record<string, {
   label: string;
   color: string;
   bgColor: string;
   borderColor: string;
+  glowColor: string;
   icon: React.ReactNode;
 }> = {
   saved: {
     label: "Saved",
-    color: "text-gray-600",
-    bgColor: "bg-gray-50",
-    borderColor: "border-gray-200",
+    color: "text-slate-400",
+    bgColor: "bg-white/[0.02]",
+    borderColor: "border-white/[0.06]",
+    glowColor: "rgba(255, 255, 255, 0.05)",
     icon: <Bookmark className="w-3.5 h-3.5" />,
   },
   in_progress: {
     label: "In Progress",
-    color: "text-blue-700",
-    bgColor: "bg-blue-50",
-    borderColor: "border-blue-200",
+    color: "text-blue-400",
+    bgColor: "bg-blue-500/10",
+    borderColor: "border-blue-500/20",
+    glowColor: "rgba(59, 130, 246, 0.15)",
     icon: <Clock className="w-3.5 h-3.5" />,
   },
   submitted: {
     label: "Submitted",
-    color: "text-purple-700",
-    bgColor: "bg-purple-50",
-    borderColor: "border-purple-200",
+    color: "text-purple-400",
+    bgColor: "bg-purple-500/10",
+    borderColor: "border-purple-500/20",
+    glowColor: "rgba(139, 92, 246, 0.15)",
     icon: <GitPullRequest className="w-3.5 h-3.5" />,
   },
   merged: {
     label: "Merged",
-    color: "text-green-700",
-    bgColor: "bg-green-50",
-    borderColor: "border-green-200",
+    color: "text-emerald-400",
+    bgColor: "bg-emerald-500/10",
+    borderColor: "border-emerald-500/20",
+    glowColor: "rgba(16, 185, 129, 0.15)",
     icon: <CheckCircle2 className="w-3.5 h-3.5" />,
   },
   closed: {
     label: "Closed",
-    color: "text-red-600",
-    bgColor: "bg-red-50",
-    borderColor: "border-red-200",
+    color: "text-rose-400",
+    bgColor: "bg-rose-500/10",
+    borderColor: "border-rose-500/20",
+    glowColor: "rgba(244, 63, 94, 0.15)",
     icon: <Circle className="w-3.5 h-3.5" />,
   },
 };
@@ -103,10 +111,10 @@ const STATUS_CONFIG: Record<string, {
 const VALID_STATUSES = ["saved", "in_progress", "submitted", "merged", "closed"];
 
 const DIFFICULTY_STYLES: Record<string, string> = {
-  beginner: "bg-green-100 text-green-800",
-  intermediate: "bg-blue-100 text-blue-800",
-  advanced: "bg-purple-100 text-purple-800",
-  unknown: "bg-gray-100 text-gray-600",
+  beginner: "bg-emerald-500/10 text-emerald-400 border border-emerald-500/15",
+  intermediate: "bg-blue-500/10 text-blue-400 border border-blue-500/15",
+  advanced: "bg-purple-500/10 text-purple-400 border border-purple-500/15",
+  unknown: "bg-white/5 text-[#64748B] border border-white/[0.08]",
 };
 
 function timeAgo(dateStr: string): string {
@@ -121,13 +129,11 @@ function timeAgo(dateStr: string): string {
 // ── PR URL Modal ───────────────────────────────────────────────
 
 function PRModal({
-  userIssueId,
   issueId,
   currentPrUrl,
   onClose,
   onSave,
 }: {
-  userIssueId: string;
   issueId: string;
   currentPrUrl: string | null;
   onClose: () => void;
@@ -151,31 +157,43 @@ function PRModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm px-4">
-      <div className="w-full max-w-md bg-white rounded-2xl shadow-2xl border border-gray-100 p-6">
-        <h3 className="text-sm font-semibold text-gray-900 mb-1">Add PR URL</h3>
-        <p className="text-xs text-gray-500 mb-4">Paste the GitHub pull request URL to mark as submitted.</p>
-        <input
-          type="url"
-          value={prUrl}
-          onChange={(e) => setPrUrl(e.target.value)}
-          placeholder="https://github.com/owner/repo/pull/123"
-          className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2.5 mb-4 focus:outline-none focus:border-gray-400"
-        />
-        <div className="flex gap-2">
-          <button
-            onClick={onClose}
-            className="flex-1 py-2 rounded-xl border border-gray-200 text-sm text-gray-600 hover:bg-gray-50 transition-colors"
-          >
-            Cancel
-          </button>
-          <button
-            onClick={handleSave}
-            disabled={saving || !prUrl}
-            className="flex-1 py-2 rounded-xl bg-gray-900 text-white text-sm font-medium hover:bg-gray-700 disabled:bg-gray-300 transition-colors"
-          >
-            {saving ? "Saving..." : "Save PR"}
-          </button>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-md px-4">
+      <div className="w-full max-w-md bg-[#10141D] border border-white/[0.06] rounded-2xl shadow-[0_12px_40px_rgba(0,0,0,0.6)] p-6 relative overflow-hidden animate-popup">
+        {/* Glow accent */}
+        <div className="absolute -top-[30%] left-[20%] w-60 h-60 bg-blue-500/10 rounded-full blur-[50px] pointer-events-none" />
+
+        <div className="relative z-10">
+          <div className="flex items-center gap-2 mb-2">
+            <div className="w-8 h-8 bg-blue-500/10 rounded-xl flex items-center justify-center border border-blue-500/20">
+              <GitPullRequest className="w-4 h-4 text-blue-400 animate-pulse" />
+            </div>
+            <h3 className="text-base font-bold text-slate-100">Add PR Link</h3>
+          </div>
+          <p className="text-xs text-muted-foreground leading-relaxed mb-4">
+            Link your GitHub Pull Request URL to update this issue&apos;s state to Submitted.
+          </p>
+          <input
+            type="url"
+            value={prUrl}
+            onChange={(e) => setPrUrl(e.target.value)}
+            placeholder="https://github.com/owner/repo/pull/123"
+            className="w-full premium-input text-sm px-4 py-3 mb-5"
+          />
+          <div className="flex gap-3">
+            <button
+              onClick={onClose}
+              className="flex-1 py-2.5 rounded-xl border border-white/[0.06] text-xs font-semibold text-slate-400 hover:text-white hover:bg-white/[0.03] transition-all duration-300"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleSave}
+              disabled={saving || !prUrl}
+              className="flex-1 py-2.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white text-xs font-semibold shadow-[0_4px_15px_rgba(59,130,246,0.3)] disabled:from-slate-800 disabled:to-slate-800 disabled:text-slate-500 disabled:shadow-none disabled:cursor-not-allowed transition-all duration-300"
+            >
+              {saving ? "Saving URL..." : "Save pull request"}
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -221,7 +239,6 @@ function IssueRow({
     <>
       {showPRModal && (
         <PRModal
-          userIssueId={userIssue.user_issue_id}
           issueId={issue.id}
           currentPrUrl={userIssue.pr_url}
           onClose={() => setShowPRModal(false)}
@@ -232,31 +249,34 @@ function IssueRow({
         />
       )}
 
-      <div className="bg-white rounded-xl border border-gray-100 p-4 hover:border-gray-200 transition-all">
+      <div className="tactile-card p-5 border border-white/[0.04] bg-gradient-to-br from-[#10141D]/90 to-[#0A0D14]/95 backdrop-blur-xl relative overflow-hidden group">
+        {/* Glow glow on active card */}
+        <span className="absolute inset-0 bg-gradient-to-r from-blue-500/0 via-blue-500/[0.01] to-indigo-500/0 opacity-0 group-hover:opacity-100 transition-opacity duration-700 pointer-events-none rounded-[1.25rem]" />
+
         {/* Top row */}
-        <div className="flex items-start justify-between gap-3 mb-2">
-          <div className="flex items-center gap-2 min-w-0">
-            <div className="flex items-center gap-1.5 bg-gray-50 border border-gray-200 rounded-lg px-2 py-0.5 flex-shrink-0">
-              <GitBranch className="w-3 h-3 text-gray-400" />
-              <span className="text-xs font-mono text-gray-600">
+        <div className="flex items-center justify-between gap-3 mb-3.5 relative z-10">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="flex items-center gap-1.5 bg-white/[0.03] border border-white/[0.06] rounded-xl px-2.5 py-1 flex-shrink-0 group-hover:border-blue-500/20 transition-all duration-300">
+              <GitBranch className="w-3.5 h-3.5 text-blue-400/80" />
+              <span className="text-xs font-mono text-slate-400 group-hover:text-slate-200 transition-colors">
                 {issue.repo_owner}/{issue.repo_name}
               </span>
             </div>
-            <span className="text-xs text-gray-400">#{issue.github_issue_number}</span>
+            <span className="text-xs text-muted-foreground/60 font-mono">#{issue.github_issue_number}</span>
           </div>
 
           {/* Status selector */}
           <div className="flex items-center gap-2 flex-shrink-0">
-            {updatingStatus ? (
-              <Loader2 className="w-3.5 h-3.5 animate-spin text-gray-400" />
-            ) : null}
+            {updatingStatus && (
+              <Loader2 className="w-3.5 h-3.5 animate-spin text-blue-400" />
+            )}
             <select
               value={userIssue.status}
               onChange={(e) => handleStatusChange(e.target.value)}
-              className={`text-xs font-medium px-2 py-1 rounded-lg border cursor-pointer focus:outline-none ${statusCfg.color} ${statusCfg.bgColor} ${statusCfg.borderColor}`}
+              className={`text-xs font-bold px-3 py-1.5 rounded-xl border cursor-pointer focus:outline-none transition-all duration-300 bg-slate-900 shadow-sm ${statusCfg.color} ${statusCfg.bgColor} ${statusCfg.borderColor}`}
             >
               {VALID_STATUSES.map((s) => (
-                <option key={s} value={s}>
+                <option key={s} value={s} className="bg-[#10141D] text-slate-200">
                   {STATUS_CONFIG[s]?.label || s}
                 </option>
               ))}
@@ -265,24 +285,25 @@ function IssueRow({
         </div>
 
         {/* Title */}
-        <Link href={`/issues/${issue.id}`} className="block mb-2">
-          <h3 className="text-sm font-semibold text-gray-900 leading-snug hover:text-blue-600 transition-colors line-clamp-2">
+        <Link href={`/issues/${issue.id}`} className="block mb-3 relative z-10">
+          <h3 className="text-sm font-bold text-slate-200 leading-snug hover:text-blue-400 transition-colors duration-300 line-clamp-2">
             {issue.title}
           </h3>
         </Link>
 
         {/* Labels + difficulty */}
-        <div className="flex items-center gap-2 flex-wrap mb-3">
-          <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${DIFFICULTY_STYLES[issue.difficulty] || DIFFICULTY_STYLES.unknown}`}>
-            {issue.difficulty.charAt(0).toUpperCase() + issue.difficulty.slice(1)}
+        <div className="flex items-center gap-2 flex-wrap mb-4 relative z-10">
+          <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full uppercase tracking-wider ${DIFFICULTY_STYLES[issue.difficulty] || DIFFICULTY_STYLES.unknown}`}>
+            {issue.difficulty}
           </span>
           {issue.labels.slice(0, 3).map((label) => (
             <span
               key={label.name}
-              className="text-xs px-2 py-0.5 rounded-full font-medium"
+              className="text-[10px] px-2 py-0.5 rounded-md font-semibold border"
               style={{
-                backgroundColor: `#${label.color}22`,
+                backgroundColor: `#${label.color}15`,
                 color: `#${label.color}`,
+                borderColor: `#${label.color}25`,
               }}
             >
               {label.name}
@@ -291,13 +312,13 @@ function IssueRow({
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-between pt-2 border-t border-gray-50">
-          <div className="flex items-center gap-3 text-xs text-gray-400">
-            <span>Saved {timeAgo(userIssue.saved_at)}</span>
+        <div className="flex items-center justify-between pt-4 border-t border-white/[0.04] relative z-10">
+          <div className="flex items-center gap-4 text-xs font-semibold text-muted-foreground/65">
+            <span className="font-medium">Saved {timeAgo(userIssue.saved_at)}</span>
             {totalSteps > 0 && (
-              <span className="flex items-center gap-1">
-                <CheckCircle2 className="w-3 h-3" />
-                {completedSteps}/{totalSteps} steps
+              <span className="flex items-center gap-1.5 text-blue-400/80 bg-blue-500/5 px-2 py-0.5 border border-blue-500/10 rounded-lg">
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                <span>{completedSteps}/{totalSteps} steps completed</span>
               </span>
             )}
             {userIssue.pr_url && (
@@ -305,40 +326,41 @@ function IssueRow({
                 href={userIssue.pr_url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="flex items-center gap-1 text-purple-600 hover:text-purple-800 transition-colors"
+                className="flex items-center gap-1.5 text-purple-400 hover:text-purple-300 hover:underline transition-all duration-300"
               >
-                <GitPullRequest className="w-3 h-3" />
-                PR
+                <GitPullRequest className="w-3.5 h-3.5" />
+                <span>PR Connected</span>
               </a>
             )}
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-4">
             {/* Add PR URL button */}
             {(userIssue.status === "in_progress" || userIssue.status === "submitted") && (
               <button
                 onClick={() => setShowPRModal(true)}
-                className="text-xs text-gray-400 hover:text-gray-700 transition-colors"
+                className="text-xs font-bold text-slate-400 hover:text-blue-400 hover:underline transition-all duration-300"
               >
-                {userIssue.pr_url ? "Edit PR" : "+ Add PR"}
+                {userIssue.pr_url ? "Update PR Link" : "+ Link PR"}
               </button>
             )}
 
             <Link
               href={`/issues/${issue.id}`}
-              className="flex items-center gap-1 text-xs text-gray-400 hover:text-blue-600 transition-colors"
+              className="flex items-center gap-1 text-xs font-bold text-slate-400 hover:text-cyan-400 transition-all duration-300 group/view"
             >
-              View
-              <ChevronRight className="w-3 h-3" />
+              <span>Guide</span>
+              <ChevronRight className="w-3.5 h-3.5 transition-transform group-hover/view:translate-x-0.5 text-muted-foreground/45 group-hover/view:text-cyan-400" />
             </Link>
 
             <a
               href={issue.html_url}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-gray-300 hover:text-gray-600 transition-colors"
+              className="text-[#334155] hover:text-slate-300 transition-colors duration-300"
+              title="Open GitHub page"
             >
-              <ExternalLink className="w-3.5 h-3.5" />
+              <ExternalLink className="w-4 h-4" />
             </a>
           </div>
         </div>
@@ -417,133 +439,151 @@ export default function DashboardPage() {
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
-        <Loader2 className="w-6 h-6 animate-spin text-gray-400" />
+        <Loader2 className="w-7 h-7 animate-spin text-blue-500" />
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="bg-red-50 border border-red-200 rounded-xl p-4 flex items-start gap-3">
-        <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
-        <p className="text-sm text-red-700">{error}</p>
+      <div className="bg-rose-500/5 border border-rose-500/15 rounded-2xl p-5 flex items-start gap-3.5 shadow-lg">
+        <AlertCircle className="w-5 h-5 text-rose-400 flex-shrink-0 mt-0.5" />
+        <p className="text-sm text-rose-400">{error}</p>
       </div>
     );
   }
 
   return (
-    <div>
+    <div className="max-w-5xl mx-auto space-y-8 animate-slide-up relative">
+      {/* Mesh blobs for page depth */}
+      <div className="absolute top-0 left-1/4 w-80 h-80 mesh-blob-blue opacity-30 pointer-events-none" />
+      <div className="absolute top-[30%] right-10 w-96 h-96 mesh-blob-purple opacity-20 pointer-events-none" />
+
       {/* ── Page header ── */}
-      <div className="mb-8">
-        <h1 className="text-2xl font-bold text-gray-900">My Dashboard</h1>
-        <p className="mt-1 text-gray-500 text-sm">Track your open source contribution journey</p>
+      <div className="relative z-10">
+        <h1 className="text-3xl font-extrabold tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-slate-100 via-slate-200 to-slate-400">
+          My Dashboard
+        </h1>
+        <p className="mt-1 text-muted-foreground text-sm font-medium">Track your open source contribution journey</p>
       </div>
 
       {/* ── Stats grid ── */}
       {stats && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-8">
-          <div className="bg-white rounded-xl border border-gray-100 p-4">
-            <div className="flex items-center gap-2 mb-2">
-              <div className="w-7 h-7 bg-gray-100 rounded-lg flex items-center justify-center">
-                <Bookmark className="w-3.5 h-3.5 text-gray-600" />
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 relative z-10">
+          {/* Total Saved */}
+          <div className="tactile-card p-5 border border-white/[0.04] bg-gradient-to-br from-[#10141D]/90 to-[#0A0D14]/95 flex flex-col justify-between hover:border-slate-500/20 transition-all duration-300">
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-xs text-muted-foreground font-semibold uppercase tracking-wider">Total Saved</span>
+              <div className="w-8 h-8 bg-slate-500/10 border border-slate-500/20 rounded-xl flex items-center justify-center shadow-inner">
+                <Bookmark className="w-4 h-4 text-slate-400" />
               </div>
-              <span className="text-xs text-gray-500 font-medium">Total Saved</span>
             </div>
-            <div className="text-2xl font-bold text-gray-900">{stats.total_saved}</div>
+            <div className="text-3xl font-extrabold text-slate-100 tracking-tight font-sans">{stats.total_saved}</div>
           </div>
 
-          <div className="bg-white rounded-xl border border-gray-100 p-4">
-            <div className="flex items-center gap-2 mb-2">
-              <div className="w-7 h-7 bg-blue-50 rounded-lg flex items-center justify-center">
-                <Zap className="w-3.5 h-3.5 text-blue-600" />
+          {/* In Progress */}
+          <div className="tactile-card p-5 border border-white/[0.04] bg-gradient-to-br from-[#10141D]/90 to-[#0A0D14]/95 flex flex-col justify-between hover:border-blue-500/20 transition-all duration-300 relative group overflow-hidden">
+            <div className="absolute inset-0 bg-blue-500/[0.01] pointer-events-none" />
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-xs text-muted-foreground font-semibold uppercase tracking-wider">In Progress</span>
+              <div className="w-8 h-8 bg-blue-500/10 border border-blue-500/20 rounded-xl flex items-center justify-center shadow-[0_0_10px_rgba(59,130,246,0.1)]">
+                <Zap className="w-4 h-4 text-blue-400 animate-pulse" />
               </div>
-              <span className="text-xs text-gray-500 font-medium">In Progress</span>
             </div>
-            <div className="text-2xl font-bold text-blue-600">{stats.in_progress}</div>
+            <div className="text-3xl font-extrabold text-blue-400 tracking-tight font-sans">{stats.in_progress}</div>
           </div>
 
-          <div className="bg-white rounded-xl border border-gray-100 p-4">
-            <div className="flex items-center gap-2 mb-2">
-              <div className="w-7 h-7 bg-purple-50 rounded-lg flex items-center justify-center">
-                <GitPullRequest className="w-3.5 h-3.5 text-purple-600" />
+          {/* Submitted */}
+          <div className="tactile-card p-5 border border-white/[0.04] bg-gradient-to-br from-[#10141D]/90 to-[#0A0D14]/95 flex flex-col justify-between hover:border-purple-500/20 transition-all duration-300 relative overflow-hidden">
+            <div className="absolute inset-0 bg-purple-500/[0.01] pointer-events-none" />
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-xs text-muted-foreground font-semibold uppercase tracking-wider">Submitted</span>
+              <div className="w-8 h-8 bg-purple-500/10 border border-purple-500/20 rounded-xl flex items-center justify-center shadow-[0_0_10px_rgba(139,92,246,0.1)]">
+                <GitPullRequest className="w-4 h-4 text-purple-400" />
               </div>
-              <span className="text-xs text-gray-500 font-medium">Submitted</span>
             </div>
-            <div className="text-2xl font-bold text-purple-600">{stats.submitted}</div>
+            <div className="text-3xl font-extrabold text-purple-400 tracking-tight font-sans">{stats.submitted}</div>
           </div>
 
-          <div className="bg-white rounded-xl border border-gray-100 p-4">
-            <div className="flex items-center gap-2 mb-2">
-              <div className="w-7 h-7 bg-green-50 rounded-lg flex items-center justify-center">
-                <Trophy className="w-3.5 h-3.5 text-green-600" />
+          {/* Merged */}
+          <div className="tactile-card p-5 border border-white/[0.04] bg-gradient-to-br from-[#10141D]/90 to-[#0A0D14]/95 flex flex-col justify-between hover:border-emerald-500/20 transition-all duration-300 relative overflow-hidden">
+            <div className="absolute inset-0 bg-emerald-500/[0.01] pointer-events-none" />
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-xs text-muted-foreground font-semibold uppercase tracking-wider">Merged</span>
+              <div className="w-8 h-8 bg-emerald-500/10 border border-emerald-500/20 rounded-xl flex items-center justify-center shadow-[0_0_10px_rgba(16,185,129,0.15)]">
+                <Trophy className="w-4 h-4 text-emerald-400" />
               </div>
-              <span className="text-xs text-gray-500 font-medium">Merged</span>
             </div>
-            <div className="text-2xl font-bold text-green-600">{stats.merged}</div>
+            <div className="text-3xl font-extrabold text-emerald-400 tracking-tight font-sans">{stats.merged}</div>
           </div>
         </div>
       )}
 
-      {/* ── Tabs ── */}
-      <div className="flex items-center gap-1 mb-4 bg-gray-100 rounded-xl p-1 w-fit">
-        {tabs.map((tab) => (
-          <button
-            key={tab.key}
-            onClick={() => setActiveTab(tab.key)}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-all ${
-              activeTab === tab.key
-                ? "bg-white text-gray-900 shadow-sm"
-                : "text-gray-500 hover:text-gray-700"
-            }`}
-          >
-            {tab.label}
-            {tab.count > 0 && (
-              <span className={`text-xs px-1.5 py-0.5 rounded-full ${
-                activeTab === tab.key ? "bg-gray-100 text-gray-600" : "bg-gray-200 text-gray-500"
-              }`}>
-                {tab.count}
-              </span>
-            )}
-          </button>
-        ))}
+      {/* ── Segmented Control Tabs ── */}
+      <div className="relative z-10 flex items-center gap-1.5 bg-slate-900/50 backdrop-blur-md rounded-2xl p-1.5 w-fit border border-white/[0.04] shadow-inner">
+        {tabs.map((tab) => {
+          const isActive = activeTab === tab.key;
+          return (
+            <button
+              key={tab.key}
+              onClick={() => setActiveTab(tab.key)}
+              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all duration-300 border ${
+                isActive
+                  ? "bg-[#161F30]/80 text-white border-blue-500/20 shadow-[inset_0_1px_1px_rgba(255,255,255,0.03),0_2px_8px_rgba(0,0,0,0.4)]"
+                  : "text-muted-foreground hover:text-slate-200 border-transparent hover:bg-white/[0.02]"
+              }`}
+            >
+              <span>{tab.label}</span>
+              {tab.count > 0 && (
+                <span className={`px-1.5 py-0.5 text-[10px] font-bold rounded-md font-mono ${
+                  isActive ? "bg-blue-500/20 text-blue-400" : "bg-white/5 text-muted-foreground/60"
+                }`}>
+                  {tab.count}
+                </span>
+              )}
+            </button>
+          );
+        })}
       </div>
 
       {/* ── Issue list ── */}
-      {filteredIssues.length === 0 ? (
-        <div className="bg-white rounded-2xl border border-gray-100 p-12 text-center">
-          <div className="w-12 h-12 bg-gray-50 rounded-2xl flex items-center justify-center mx-auto mb-3">
-            <TrendingUp className="w-6 h-6 text-gray-300" />
+      <div className="relative z-10">
+        {filteredIssues.length === 0 ? (
+          <div className="glass-panel p-16 text-center border border-white/[0.04] bg-slate-900/20 shadow-xl max-w-xl mx-auto animate-popup">
+            <div className="w-12 h-12 bg-white/[0.02] border border-white/[0.06] rounded-2xl flex items-center justify-center mx-auto mb-4">
+              <TrendingUp className="w-5 h-5 text-muted-foreground/60" />
+            </div>
+            <p className="text-slate-200 font-bold text-base mb-1.5">
+              {activeTab === "all" ? "No contributions tracked yet" : `No ${STATUS_CONFIG[activeTab]?.label.toLowerCase()} issues`}
+            </p>
+            <p className="text-muted-foreground text-xs leading-relaxed max-w-sm mx-auto mb-6">
+              {activeTab === "all"
+                ? "Start searching or exploring repo structures inside the Discovery view to find your ideal issue matches."
+                : "No issues under this filter. Update the task state drop-downs on your saved issues to categorise them."}
+            </p>
+            {activeTab === "all" && (
+              <Link
+                href="/discover"
+                className="inline-flex items-center gap-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white text-xs font-semibold px-4.5 py-2.5 rounded-xl shadow-[0_4px_15px_rgba(59,130,246,0.3)] transition-all duration-300 hover:scale-102 active:scale-98"
+              >
+                <span>Explore curation stream</span>
+                <ChevronRight className="w-4 h-4" />
+              </Link>
+            )}
           </div>
-          <p className="text-sm font-medium text-gray-900 mb-1">
-            {activeTab === "all" ? "No saved issues yet" : `No ${STATUS_CONFIG[activeTab]?.label.toLowerCase()} issues`}
-          </p>
-          <p className="text-xs text-gray-400 mb-4">
-            {activeTab === "all"
-              ? "Head to Discover to find issues that match your skills."
-              : "Change the status of an issue to see it here."}
-          </p>
-          {activeTab === "all" && (
-            <Link
-              href="/discover"
-              className="inline-flex items-center gap-2 bg-gray-900 text-white text-sm font-medium px-4 py-2 rounded-xl hover:bg-gray-700 transition-colors"
-            >
-              Discover Issues
-              <ChevronRight className="w-4 h-4" />
-            </Link>
-          )}
-        </div>
-      ) : (
-        <div className="space-y-3">
-          {filteredIssues.map((ui) => (
-            <IssueRow
-              key={ui.user_issue_id}
-              userIssue={ui}
-              onStatusChange={handleStatusChange}
-              onPRAdded={handlePRAdded}
-            />
-          ))}
-        </div>
-      )}
+        ) : (
+          <div className="space-y-4 animate-popup">
+            {filteredIssues.map((ui) => (
+              <IssueRow
+                key={ui.user_issue_id}
+                userIssue={ui}
+                onStatusChange={handleStatusChange}
+                onPRAdded={handlePRAdded}
+              />
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

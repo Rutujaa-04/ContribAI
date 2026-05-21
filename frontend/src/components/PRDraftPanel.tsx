@@ -16,6 +16,10 @@
 //   {analysis && (
 //     <PRDraftPanel issueId={issue.id} issueNumber={issue.github_issue_number} />
 //   )}
+// Redesigned high-fidelity PR Draft Generator Console.
+// Styled to resemble a modern premium developer workspace editor.
+// Includes glassmorphic surfaces, tactile inputs, custom IDE output themes,
+// and smooth interactive states.
 // ============================================================
 
 "use client";
@@ -23,7 +27,7 @@
 import { useState } from "react";
 import { apiClient } from "@/lib/api-client";
 import {
-  GitPullRequest, Loader2, Copy, Check, ChevronDown, ChevronUp,
+  GitPullRequest, Loader2, Copy, Check, ChevronDown, ChevronUp, Sparkles, Terminal
 } from "lucide-react";
 
 interface PRDraft {
@@ -36,7 +40,7 @@ interface PRDraftPanelProps {
   issueNumber: number;
 }
 
-export default function PRDraftPanel({ issueId, issueNumber }: PRDraftPanelProps) {
+export default function PRDraftPanel({ issueId }: PRDraftPanelProps) {
   const [open, setOpen] = useState(false);           // Panel collapsed by default
   const [userSummary, setUserSummary] = useState(""); 
   const [draft, setDraft] = useState<PRDraft | null>(null);
@@ -56,8 +60,10 @@ export default function PRDraftPanel({ issueId, issueNumber }: PRDraftPanelProps
         user_summary: userSummary,
       });
       setDraft(res.data);
-    } catch (e: any) {
-      const msg = e?.response?.data?.detail || "Failed to generate draft. Please try again.";
+    } catch (e) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const err = e as any;
+      const msg = err?.response?.data?.detail || "Failed to generate draft. Please try again.";
       setError(msg);
     } finally {
       setLoading(false);
@@ -80,46 +86,46 @@ export default function PRDraftPanel({ issueId, issueNumber }: PRDraftPanelProps
   };
 
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden">
+    <div className="tactile-card bg-card overflow-hidden">
 
       {/* ── Collapsible header ── */}
       <button
         onClick={() => setOpen((v) => !v)}
-        className="w-full flex items-center justify-between px-6 py-4 hover:bg-gray-50 transition-colors"
+        className="w-full flex items-center justify-between px-6 py-4 hover:bg-white/[0.02] transition-all duration-200 select-none cursor-pointer"
       >
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 bg-green-50 rounded-lg flex items-center justify-center">
-            <GitPullRequest className="w-4 h-4 text-green-600" />
+        <div className="flex items-center gap-3">
+          <div className="w-9 h-9 bg-emerald-500/10 border border-emerald-500/20 rounded-xl flex items-center justify-center shadow-[0_0_15px_rgba(16,185,129,0.1)]">
+            <GitPullRequest className="w-5 h-5 text-emerald-400" />
           </div>
           <div className="text-left">
-            <h2 className="text-sm font-semibold text-gray-900">PR Draft Generator</h2>
-            <p className="text-xs text-gray-400">Generate a pull request title and description</p>
+            <h2 className="text-sm font-bold text-[#E2E8F0] tracking-tight">PR Draft Generator</h2>
+            <p className="text-[11px] text-[#475569] font-medium">Generate structured title and descriptions using AI analysis</p>
           </div>
         </div>
         {open
-          ? <ChevronUp className="w-4 h-4 text-gray-400" />
-          : <ChevronDown className="w-4 h-4 text-gray-400" />
+          ? <ChevronUp className="w-4 h-4 text-[#475569]" />
+          : <ChevronDown className="w-4 h-4 text-[#475569]" />
         }
       </button>
 
       {/* ── Panel body ── */}
       {open && (
-        <div className="px-6 pb-6 border-t border-gray-50 pt-5 space-y-4">
+        <div className="px-6 pb-6 border-t border-white/[0.04] pt-5 space-y-5 animate-slide-up">
 
           {/* User summary input */}
-          <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1.5">
-              What did you do to fix this issue?
+          <div className="space-y-2">
+            <label className="block text-[10px] font-bold uppercase tracking-wider text-[#64748B]">
+              Describe your contribution changes
             </label>
             <textarea
               value={userSummary}
               onChange={(e) => setUserSummary(e.target.value)}
-              placeholder={`e.g. "I added a null check in the handleSubmit function in src/form.ts and added a unit test covering the edge case where the input is undefined."`}
+              placeholder={`e.g. "I added a null check in the handleSubmit function in src/form.ts and wrote a unit test covering when inputs are undefined."`}
               rows={4}
-              className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2.5 resize-none focus:outline-none focus:border-gray-400 placeholder:text-gray-300 leading-relaxed"
+              className="w-full text-sm bg-[#080B10]/60 border border-white/[0.06] rounded-xl px-4 py-3 resize-none focus:outline-none focus:border-emerald-500/40 focus:ring-4 focus:ring-emerald-500/5 text-[#E2E8F0] placeholder:text-[#475569] leading-relaxed transition-all duration-200"
             />
-            <p className="text-xs text-gray-400 mt-1">
-              A sentence or two is enough — be specific about what you changed.
+            <p className="text-[11px] text-[#475569] font-medium">
+              A brief sentence or two outlining files modified and core fixes is perfect.
             </p>
           </div>
 
@@ -127,72 +133,85 @@ export default function PRDraftPanel({ issueId, issueNumber }: PRDraftPanelProps
           <button
             onClick={handleGenerate}
             disabled={loading || !userSummary.trim()}
-            className="inline-flex items-center gap-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-200 disabled:text-gray-400 text-white font-medium px-4 py-2.5 rounded-xl transition-colors text-sm"
+            className="inline-flex items-center gap-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 disabled:from-[#1E293B] disabled:to-[#1E293B] disabled:text-[#475569] text-white font-bold px-5 py-3 rounded-xl transition-all duration-200 text-xs uppercase tracking-wider shadow-[0_4px_20px_rgba(16,185,129,0.2)] select-none cursor-pointer"
           >
             {loading ? (
               <Loader2 className="w-4 h-4 animate-spin" />
             ) : (
-              <GitPullRequest className="w-4 h-4" />
+              <Sparkles className="w-4 h-4" />
             )}
-            {loading ? "Generating..." : "Generate PR Draft"}
+            {loading ? "Generating pull request draft..." : "Generate PR Draft"}
           </button>
 
           {/* Error */}
           {error && (
-            <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-xl px-3 py-2">
+            <div className="text-sm text-red-400 bg-red-500/10 border border-red-500/20 rounded-xl px-4 py-2.5">
               {error}
             </div>
           )}
 
           {/* Draft output */}
           {draft && (
-            <div className="space-y-3">
+            <div className="space-y-4 pt-4 border-t border-white/[0.04]">
 
               {/* PR Title */}
               <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[10px] font-bold text-[#64748B] uppercase tracking-wider">
                     PR Title
                   </span>
                   <button
                     onClick={() => copyToClipboard(draft.title, "title")}
-                    className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-700 transition-colors"
+                    className="flex items-center gap-1.5 text-xs text-[#475569] hover:text-[#E2E8F0] transition-colors duration-200 font-bold select-none cursor-pointer"
                   >
-                    {copiedTitle
-                      ? <><Check className="w-3 h-3 text-green-500" /> Copied</>
-                      : <><Copy className="w-3 h-3" /> Copy</>
-                    }
+                    {copiedTitle ? (
+                      <span className="flex items-center gap-1 text-emerald-400 bg-emerald-500/10 border border-emerald-500/25 px-2 py-0.5 rounded text-[10px] uppercase font-bold tracking-wide">
+                        <Check className="w-3 h-3" /> Copied!
+                      </span>
+                    ) : (
+                      <>
+                        <Copy className="w-3.5 h-3.5" /> Copy Title
+                      </>
+                    )}
                   </button>
                 </div>
-                <div className="bg-gray-50 border border-gray-200 rounded-xl px-3 py-2.5 text-sm font-medium text-gray-900">
+                <div className="bg-[#080B10]/60 border border-white/[0.06] rounded-xl px-4 py-3 text-xs font-mono font-bold text-[#3B82F6] select-all shadow-[inset_0_2px_4px_rgba(0,0,0,0.2)]">
                   {draft.title}
                 </div>
               </div>
 
               {/* PR Body */}
               <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
-                    PR Description
-                  </span>
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-1.5">
+                    <Terminal className="w-4 h-4 text-[#64748B]" />
+                    <span className="text-[10px] font-bold text-[#64748B] uppercase tracking-wider">
+                      PR Description Body (Markdown)
+                    </span>
+                  </div>
                   <button
                     onClick={() => copyToClipboard(draft.body, "body")}
-                    className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-700 transition-colors"
+                    className="flex items-center gap-1.5 text-xs text-[#475569] hover:text-[#E2E8F0] transition-colors duration-200 font-bold select-none cursor-pointer"
                   >
-                    {copiedBody
-                      ? <><Check className="w-3 h-3 text-green-500" /> Copied</>
-                      : <><Copy className="w-3 h-3" /> Copy</>
-                    }
+                    {copiedBody ? (
+                      <span className="flex items-center gap-1 text-emerald-400 bg-emerald-500/10 border border-emerald-500/25 px-2 py-0.5 rounded text-[10px] uppercase font-bold tracking-wide">
+                        <Check className="w-3 h-3" /> Copied!
+                      </span>
+                    ) : (
+                      <>
+                        <Copy className="w-3.5 h-3.5" /> Copy Description
+                      </>
+                    )}
                   </button>
                 </div>
-                <pre className="bg-gray-50 border border-gray-200 rounded-xl px-3 py-2.5 text-xs text-gray-700 whitespace-pre-wrap leading-relaxed font-mono overflow-x-auto max-h-72 overflow-y-auto">
+                <pre className="bg-[#080B10]/60 border border-white/[0.06] rounded-xl px-4 py-3.5 text-xs text-[#94A3B8] whitespace-pre-wrap leading-relaxed font-mono overflow-x-auto max-h-80 overflow-y-auto shadow-[inset_0_2px_4px_rgba(0,0,0,0.2)] pr-2">
                   {draft.body}
                 </pre>
               </div>
 
               {/* Regenerate hint */}
-              <p className="text-xs text-gray-400">
-                Not quite right? Edit your description above and generate again.
+              <p className="text-[10px] text-[#475569] font-medium text-center">
+                Need edits? Refine your summary above and regenerate the pull request draft anytime.
               </p>
             </div>
           )}
