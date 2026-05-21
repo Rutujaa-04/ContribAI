@@ -62,6 +62,12 @@ class Issue(Base):
     analysis_cache = Column(JSONB, nullable=True)
     analysis_generated_at = Column(DateTime, nullable=True)
 
+    # ── PR Competition tracking ──────────────────────────────
+    # Caches the result of checking if any PRs reference this issue.
+    # Stores: {total_prs, open_prs, prs: [{number, title, state, user, html_url, created_at}]}
+    pr_competition = Column(JSONB, nullable=True)
+    pr_competition_checked_at = Column(DateTime, nullable=True)
+
     # ── Relationships ────────────────────────────────────────
     saved_by = relationship(
         "UserIssue",

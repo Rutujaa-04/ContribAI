@@ -118,6 +118,18 @@ function timeAgo(dateStr: string): string {
   return `${Math.floor(diffDays / 365)}y ago`;
 }
 
+function prTimeAgo(dateStr: string): string {
+  const date = new Date(dateStr);
+  const now = new Date();
+  const diffMs = now.getTime() - date.getTime();
+  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+  if (diffDays === 0) return "today";
+  if (diffDays === 1) return "yesterday";
+  if (diffDays < 7) return `${diffDays}d ago`;
+  if (diffDays < 30) return `${Math.floor(diffDays / 7)}w ago`;
+  return `${Math.floor(diffDays / 30)}mo ago`;
+}
+
 function renderBody(body: string): string {
   return body
     .replace(/#{1,6}\s/g, "")
@@ -202,6 +214,100 @@ function IngestPill({ status }: { status: IngestStatus }) {
   );
 }
 
+function PRCompetitionBanner({ prStatus, loading }: { 
+  prStatus: { total_prs: number; open_prs: number; prs: Array<{ number: number; title: string; state: string; user: string; html_url: string; created_at: string }>; checked: boolean } | null;
+  loading: boolean;
+}) {
+  if (loading) {
+    return (
+      <div className="bg-[#111827] rounded-2xl border border-white/[0.06] p-4 mb-4 animate-pulse">
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 bg-white/[0.06] rounded-lg" />
+          <div className="h-4 bg-white/[0.06] rounded w-48" />
+        </div>
+      </div>
+    );
+  }
+
+  if (!prStatus || !prStatus.checked || prStatus.total_prs === 0) {
+    return null;
+  }
+
+  const hasOpenPRs = prStatus.open_prs > 0;
+
+  return (
+    <div className={`rounded-2xl border p-5 mb-4 transition-all duration-200 ${
+      hasOpenPRs 
+        ? "bg-amber-500/[0.06] border-amber-500/20" 
+        : "bg-white/[0.02] border-white/[0.06]"
+    }`}>
+      {/* Header */}
+      <div className="flex items-center gap-3 mb-4">
+        <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+          hasOpenPRs ? "bg-amber-500/10" : "bg-white/5"
+        }`}>
+          <AlertTriangle className={`w-4 h-4 ${
+            hasOpenPRs ? "text-amber-400" : "text-[#64748B]"
+          }`} />
+        </div>
+        <div>
+          <h3 className={`text-sm font-semibold ${
+            hasOpenPRs ? "text-amber-400" : "text-[#94A3B8]"
+          }`}>
+            {prStatus.total_prs} PR{prStatus.total_prs !== 1 ? "s" : ""} reference{prStatus.total_prs === 1 ? "s" : ""} this issue
+          </h3>
+          <p className="text-xs text-[#475569] mt-0.5">
+            {hasOpenPRs 
+              ? `${prStatus.open_prs} still open \u2014 this issue may already be in progress`
+              : "All PRs are closed \u2014 this issue may still be available"
+            }
+          </p>
+        </div>
+      </div>
+
+      {/* PR list */}
+      <div className="space-y-2">
+        {prStatus.prs.map((pr) => (
+          <a
+            key={pr.number}
+            href={pr.html_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={`flex items-center justify-between p-3 rounded-xl border transition-all duration-200 hover:border-white/15 group ${
+              pr.state === "open"
+                ? "bg-emerald-500/[0.04] border-emerald-500/15 hover:bg-emerald-500/[0.08]"
+                : "bg-white/[0.02] border-white/[0.06] hover:bg-white/[0.04]"
+            }`}
+          >
+            <div className="flex items-center gap-3 min-w-0">
+              {/* State dot */}
+              <span className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${
+                pr.state === "open" ? "bg-emerald-400" : "bg-red-400"
+              }`} />
+              <div className="min-w-0">
+                <p className="text-sm text-[#E2E8F0] font-medium truncate group-hover:text-white">
+                  #{pr.number} {pr.title}
+                </p>
+                <p className="text-xs text-[#475569] mt-0.5">
+                  by @{pr.user} · {prTimeAgo(pr.created_at)}
+                </p>
+              </div>
+            </div>
+            <ExternalLink className="w-3.5 h-3.5 text-[#475569] flex-shrink-0 group-hover:text-[#94A3B8]" />
+          </a>
+        ))}
+      </div>
+
+      {/* Footer tip */}
+      {hasOpenPRs && (
+        <p className="text-xs text-amber-400/60 mt-3 pl-11">
+          Check the PRs above before starting your work to avoid duplicated effort.
+        </p>
+      )}
+    </div>
+  );
+}
+
 // ── Component ─────────────────────────────────────────────────
 
 export default function IssueDetailPage() {
@@ -218,6 +324,18 @@ export default function IssueDetailPage() {
   const [checklist, setChecklist] = useState<Record<string, boolean>>({});
   const [error, setError] = useState<string | null>(null);
   const [ingestStatus, setIngestStatus] = useState<IngestStatus>("idle");
+
+  // PR competition detection
+  const [prStatus, setPrStatus] = useState<{
+    total_prs: number;
+    open_prs: number;
+    prs: Array<{
+      number: number; title: string; state: string;
+      user: string; html_url: string; created_at: string;
+    }>;
+    checked: boolean;
+  } | null>(null);
+  const [loadingPrStatus, setLoadingPrStatus] = useState(false);
 
   // Prevent double-firing ingestion in React strict mode
   const ingestFiredRef = useRef(false);
@@ -273,6 +391,23 @@ export default function IssueDetailPage() {
 
     triggerIngestion();
   }, [issue]);
+
+  // ── Check PR competition ─────────────────────────────────────
+  useEffect(() => {
+    if (!issue) return;
+    async function checkPrStatus() {
+      setLoadingPrStatus(true);
+      try {
+        const res = await apiClient.get(`/issues/${issueId}/pr-status`);
+        setPrStatus(res.data);
+      } catch {
+        // Silent fail — non-critical feature
+      } finally {
+        setLoadingPrStatus(false);
+      }
+    }
+    checkPrStatus();
+  }, [issue, issueId]);
 
   // ── Run AI analysis ────────────────────────────────────────
   const handleAnalyze = async (forceRefresh = false) => {
@@ -474,6 +609,9 @@ export default function IssueDetailPage() {
               </div>
             )}
           </div>
+
+          {/* ── PR Competition Warning ── */}
+          <PRCompetitionBanner prStatus={prStatus} loading={loadingPrStatus} />
 
           {/* Repo Overview */}
           <RepoOverview owner={issue.repo_owner} repo={issue.repo_name} />

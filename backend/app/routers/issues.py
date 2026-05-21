@@ -25,12 +25,14 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from pydantic import BaseModel
 
 from app.database import get_db
 from app.dependencies import get_current_user
 from app.models.user import User
 from app.models.issue import Issue, UserIssue
+from app.models.repository import Repository
 from app.config import settings  
 
 router = APIRouter()
@@ -230,6 +232,98 @@ def get_or_cache_issue(db: Session, issue_data: dict) -> Issue:
         return existing
 
 
+# ── Recommendation scoring ────────────────────────────────────
+
+def compute_recommendation_score(
+    issue_data: dict,
+    user: User,
+    user_repo_counts: dict,
+    db: Session,
+) -> float:
+    """
+    Compute 0–100 recommendation score for a user+issue pair.
+
+    Factors (weights sum to 100):
+      language_match   35  — repo language ∈ user's skill_tags
+      difficulty_match  25  — issue difficulty ≈ user's experience_level
+      repo_familiarity  20  — user has saved issues from this repo before
+      recency_bonus     10  — issue was created/updated recently
+      community_signal  10  — low comment count = less competition
+    """
+    score = 0.0
+
+    repo_key = f"{issue_data['repo_owner']}/{issue_data['repo_name']}"
+
+    # 1. Language match (35 pts)
+    repo = db.query(Repository).filter(Repository.full_name == repo_key).first()
+    user_tags = [t.lower() for t in (user.skill_tags or [])]
+    if repo and repo.primary_language:
+        lang = repo.primary_language.lower()
+        if lang in user_tags:
+            score += 35.0
+        elif any(tag in lang or lang in tag for tag in user_tags):
+            score += 15.0  # Partial match (e.g. user knows "react", repo is "javascript")
+
+    # 2. Difficulty match (25 pts)
+    difficulty = issue_data.get("difficulty", "unknown")
+    user_level = user.experience_level or "beginner"
+    LEVEL_ORDER = {"beginner": 0, "intermediate": 1, "advanced": 2}
+    diff_distance = abs(LEVEL_ORDER.get(difficulty, 1) - LEVEL_ORDER.get(user_level, 0))
+    score += {0: 25.0, 1: 12.0, 2: 0.0}.get(diff_distance, 0.0)
+
+    # 3. Repo familiarity (20 pts)
+    repo_count = user_repo_counts.get(repo_key, 0)
+    score += min(repo_count / 3.0, 1.0) * 20.0
+
+    # 4. Recency (10 pts)
+    created_at = issue_data.get("created_at", "")
+    if created_at:
+        try:
+            age_days = (datetime.utcnow() - datetime.fromisoformat(
+                created_at.replace("Z", "+00:00")
+            ).replace(tzinfo=None)).days
+            if age_days < 7:
+                score += 10.0
+            elif age_days < 30:
+                score += 6.0
+            elif age_days < 90:
+                score += 2.0
+        except Exception:
+            pass
+
+    # 5. Community signal (10 pts) — fewer comments = less competition
+    comments = issue_data.get("comment_count", 0)
+    if comments <= 2:
+        score += 10.0
+    elif comments <= 5:
+        score += 7.0
+    elif comments <= 10:
+        score += 4.0
+    elif comments <= 20:
+        score += 1.0
+
+    return round(score, 1)
+
+
+def _get_user_repo_counts(user_id, db: Session) -> dict:
+    """
+    Returns {"owner/repo": count} of how many issues the user has
+    saved/interacted with in each repo. Used for repo_familiarity scoring.
+    """
+    rows = (
+        db.query(
+            Issue.repo_owner,
+            Issue.repo_name,
+            func.count(UserIssue.id),
+        )
+        .join(Issue, Issue.id == UserIssue.issue_id)
+        .filter(UserIssue.user_id == user_id)
+        .group_by(Issue.repo_owner, Issue.repo_name)
+        .all()
+    )
+    return {f"{r[0]}/{r[1]}": r[2] for r in rows}
+
+
 # ── GET /issues/discover ──────────────────────────────────────
 @router.get("/discover")
 async def discover_issues(
@@ -237,6 +331,7 @@ async def discover_issues(
     languages: Optional[str] = Query(None, description="Comma-separated: python,typescript"),
     level: Optional[str] = Query("beginner"),
     time_available: Optional[int] = Query(None),
+    sort: Optional[str] = Query("recommended", description="recommended|newest|updated"),
     page: int = Query(1, ge=1),
     per_page: int = Query(10, ge=1, le=30),
     current_user: User = Depends(get_current_user),
@@ -314,9 +409,24 @@ async def discover_issues(
                 .all()
             )
             saved_issue_ids = {str(row[0]) for row in saved}
-            
+
+        # Pre-fetch user's repo interaction counts for recommendation scoring
+        user_repo_counts = _get_user_repo_counts(current_user.id, db)
+
         # Build result_issues directly from DB issues
         for db_issue in db_issues:
+            rec_score = compute_recommendation_score(
+                issue_data={
+                    "repo_owner": db_issue.repo_owner,
+                    "repo_name": db_issue.repo_name,
+                    "difficulty": db_issue.difficulty,
+                    "created_at": db_issue.created_at.isoformat(),
+                    "comment_count": db_issue.comment_count,
+                },
+                user=current_user,
+                user_repo_counts=user_repo_counts,
+                db=db,
+            )
             result_issues.append({
                 "id": str(db_issue.id),
                 "github_issue_number": db_issue.github_issue_number,
@@ -332,14 +442,24 @@ async def discover_issues(
                 "created_at": db_issue.created_at.isoformat(),
                 "is_saved": str(db_issue.id) in saved_issue_ids,
                 "full_name": f"{db_issue.repo_owner}/{db_issue.repo_name}",
+                "recommendation_score": rec_score,
+                "recommended": rec_score >= 70,
             })
-            
+
+        # Sort by recommendation score in fallback mode too
+        effective_sort = sort or "recommended"
+        if effective_sort == "recommended":
+            result_issues.sort(key=lambda x: x.get("recommendation_score", 0), reverse=True)
+        elif effective_sort == "newest":
+            result_issues.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+
         return {
             "items": result_issues,
             "total": total_count,
             "page": page,
             "per_page": per_page,
             "using_fallback": True,
+            "sort": effective_sort,
         }
 
     # Get the set of issue IDs the user has already saved
@@ -357,6 +477,9 @@ async def discover_issues(
             .all()
         )
         saved_issue_ids = {str(row[0]) for row in saved}
+
+    # Pre-fetch user's repo interaction counts for recommendation scoring
+    user_repo_counts = _get_user_repo_counts(current_user.id, db)
 
     from app.routers.repos import compute_difficulty_score
 
@@ -379,6 +502,20 @@ async def discover_issues(
         if db_issue is None:
             continue
 
+        # Compute recommendation score for this issue
+        rec_score = compute_recommendation_score(
+            issue_data={
+                "repo_owner": db_issue.repo_owner,
+                "repo_name": db_issue.repo_name,
+                "difficulty": db_issue.difficulty,
+                "created_at": db_issue.created_at.isoformat(),
+                "comment_count": db_issue.comment_count,
+            },
+            user=current_user,
+            user_repo_counts=user_repo_counts,
+            db=db,
+        )
+
         result_issues.append({
             "id": str(db_issue.id),
             "github_issue_number": db_issue.github_issue_number,
@@ -394,7 +531,17 @@ async def discover_issues(
             "created_at": db_issue.created_at.isoformat(),
             "is_saved": str(db_issue.id) in saved_issue_ids,
             "full_name": f"{db_issue.repo_owner}/{db_issue.repo_name}",
+            "recommendation_score": rec_score,
+            "recommended": rec_score >= 70,
         })
+
+    # Sort by recommendation score if requested
+    effective_sort = sort or "recommended"
+    if effective_sort == "recommended":
+        result_issues.sort(key=lambda x: x.get("recommendation_score", 0), reverse=True)
+    elif effective_sort == "newest":
+        result_issues.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+    # "updated" keeps GitHub's default sort order
 
     return {
         "items": result_issues,
@@ -404,6 +551,7 @@ async def discover_issues(
         "has_next": page * per_page < min(total_count, 1000),
         "query_languages": lang_list,
         "query_level": effective_level,
+        "sort": effective_sort,
     }
 
 
@@ -447,6 +595,7 @@ def get_issue(
         "created_at": issue.created_at.isoformat(),
         "full_name": f"{issue.repo_owner}/{issue.repo_name}",
         "analysis": issue.analysis_cache,  # None until AI runs
+        "pr_competition": issue.pr_competition,  # None if never checked
         "user_issue": {
             "status": user_issue.status,
             "pr_url": user_issue.pr_url,
@@ -529,6 +678,101 @@ def unsave_issue(
     db.commit()
 
     return {"message": "Issue removed"}
+
+
+# ── PR Competition Detection ──────────────────────────────────
+
+async def check_github_prs(
+    owner: str, repo: str, issue_number: int
+) -> dict:
+    """
+    Searches GitHub for PRs that reference this issue number.
+    Uses the search API: is:pr repo:owner/repo "#N" in:title,body
+    Returns {total_prs, open_prs, prs: [{number, title, state, user, html_url, created_at}]}
+    """
+    headers = {"Accept": "application/vnd.github.v3+json"}
+    if settings.github_token and settings.github_token.strip():
+        headers["Authorization"] = f"Bearer {settings.github_token.strip()}"
+
+    query = f'is:pr repo:{owner}/{repo} "#{issue_number}" in:title,body'
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.get(
+                "https://api.github.com/search/issues",
+                params={"q": query, "per_page": 5},
+                headers=headers,
+            )
+
+            if resp.status_code != 200:
+                return {"total_prs": 0, "open_prs": 0, "prs": [], "checked": True}
+
+            data = resp.json()
+            items = data.get("items", [])
+
+            # Filter to only PRs that actually reference this issue number
+            ref = f"#{issue_number}"
+            prs = []
+            for item in items:
+                body = (item.get("body") or "").lower()
+                title = (item.get("title") or "").lower()
+                if ref.lower() in body or ref.lower() in title:
+                    prs.append({
+                        "number": item["number"],
+                        "title": item["title"],
+                        "state": item["state"],
+                        "user": item["user"]["login"],
+                        "html_url": item["html_url"],
+                        "created_at": item["created_at"],
+                    })
+
+            return {
+                "total_prs": len(prs),
+                "open_prs": sum(1 for p in prs if p["state"] == "open"),
+                "prs": prs,
+                "checked": True,
+            }
+    except Exception as e:
+        print(f"⚠️ PR competition check failed: {e}")
+        return {"total_prs": 0, "open_prs": 0, "prs": [], "checked": False}
+
+
+# ── GET /issues/{issue_id}/pr-status ──────────────────────────
+@router.get("/{issue_id}/pr-status")
+async def get_pr_competition(
+    issue_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Checks if any existing PRs reference this issue on GitHub.
+    Caches result for 1 hour to avoid rate limits.
+    Shows users if an issue is already being worked on.
+    """
+    issue = db.query(Issue).filter(Issue.id == issue_id).first()
+    if not issue:
+        raise HTTPException(status_code=404, detail="Issue not found")
+
+    # Return cache if fresh (1 hour)
+    if issue.pr_competition and issue.pr_competition_checked_at:
+        age = datetime.utcnow() - issue.pr_competition_checked_at
+        if age.total_seconds() < 3600:
+            return issue.pr_competition
+
+    # Query GitHub for PRs referencing this issue
+    result = await check_github_prs(
+        issue.repo_owner, issue.repo_name, issue.github_issue_number
+    )
+
+    # Cache the result
+    issue.pr_competition = result
+    issue.pr_competition_checked_at = datetime.utcnow()
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+
+    return result
 
 
 # ============================================================

@@ -15,7 +15,7 @@ import { useState, useEffect, useCallback } from "react";
 import { apiClient } from "@/lib/api-client";
 import OnboardingModal from "@/components/OnboardingModal";
 import IssueCard from "@/components/IssueCard";
-import { Search, SlidersHorizontal, RefreshCw, AlertCircle } from "lucide-react";
+import { Search, SlidersHorizontal, RefreshCw, AlertCircle, ArrowUpDown } from "lucide-react";
 
 // ── Types ─────────────────────────────────────────────────────
 
@@ -34,6 +34,8 @@ interface Issue {
   html_url: string;
   created_at: string;
   is_saved: boolean;
+  recommendation_score?: number;
+  recommended?: boolean;
 }
 
 interface UserProfile {
@@ -75,6 +77,7 @@ export default function DiscoverPage() {
   const [filterLangs, setFilterLangs] = useState<string[]>([]);
   const [showFilters, setShowFilters] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [filterSort, setFilterSort] = useState("recommended");
 
   // ── Load user profile on mount ─────────────────────────────
   useEffect(() => {
@@ -118,6 +121,7 @@ export default function DiscoverPage() {
         if (langs.length > 0) {
           params.languages = langs.join(",");
         }
+        params.sort = filterSort;
 
         const res = await apiClient.get("/issues/discover", { params });
         const data = res.data;
@@ -139,7 +143,7 @@ export default function DiscoverPage() {
         setLoading(false);
       }
     },
-    [user, showOnboarding, filterLevel, filterLangs]
+    [user, showOnboarding, filterLevel, filterLangs, filterSort]
   );
 
   // Run whenever user loads or filters change
@@ -149,7 +153,7 @@ export default function DiscoverPage() {
       fetchIssues(1, true);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user, showOnboarding, filterLevel, filterLangs]);
+  }, [user, showOnboarding, filterLevel, filterLangs, filterSort]);
 
   // ── Handlers ───────────────────────────────────────────────
 
@@ -231,6 +235,27 @@ export default function DiscoverPage() {
             >
               <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin text-blue-400" : ""}`} />
             </button>
+
+            {/* Sort toggle */}
+            <div className="flex items-center bg-white/[0.02] border border-white/[0.06] rounded-xl overflow-hidden">
+              {[
+                { value: "recommended", label: "Best Match" },
+                { value: "newest", label: "Newest" },
+                { value: "updated", label: "Active" },
+              ].map((opt) => (
+                <button
+                  key={opt.value}
+                  onClick={() => setFilterSort(opt.value)}
+                  className={`px-3 py-2 text-xs font-semibold transition-all duration-200 ${
+                    filterSort === opt.value
+                      ? "bg-blue-600/20 text-blue-400 border-r border-blue-500/20"
+                      : "text-[#64748B] hover:text-[#94A3B8] hover:bg-white/[0.03] border-r border-white/[0.06] last:border-r-0"
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
             <button
               onClick={() => setShowFilters((v) => !v)}
               className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all duration-300 border ${
