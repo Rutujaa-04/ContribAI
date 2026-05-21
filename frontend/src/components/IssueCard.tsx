@@ -14,7 +14,7 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { Bookmark, BookmarkCheck, Clock, MessageSquare, ExternalLink, GitBranch } from "lucide-react";
+import { Bookmark, BookmarkCheck, Clock, MessageSquare, ExternalLink, GitBranch, Sparkles } from "lucide-react";
 
 // ── Types (inline — mirrors backend response shape) ───────────
 
@@ -39,6 +39,8 @@ export interface IssueCardProps {
     html_url: string;
     created_at: string;
     is_saved: boolean;
+    recommendation_score?: number;
+    recommended?: boolean;
   };
   onSave: (issueId: string) => Promise<void>;
 }
@@ -111,6 +113,21 @@ export default function IssueCard({ issue, onSave }: IssueCardProps) {
       
       {/* Dynamic hover-glow gradient ring inside card */}
       <span className="absolute inset-0 bg-gradient-to-r from-blue-500/0 via-blue-500/[0.02] to-cyan-500/0 opacity-0 group-hover:opacity-100 transition-opacity duration-700 rounded-[1.25rem] pointer-events-none" />
+
+      {/* ── Recommended badge ── */}
+      {issue.recommended && (
+        <div className="flex items-center gap-1.5 mb-3 relative z-10">
+          <span className="inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider px-2.5 py-1 rounded-full bg-gradient-to-r from-blue-500/15 to-cyan-500/10 text-blue-400 border border-blue-500/20 shadow-[0_0_12px_rgba(59,130,246,0.08)]">
+            <Sparkles className="w-3 h-3" />
+            Recommended for you
+          </span>
+          {issue.recommendation_score != null && (
+            <span className="text-[10px] font-mono text-[#475569]">
+              {issue.recommendation_score}% match
+            </span>
+          )}
+        </div>
+      )}
 
       {/* ── Top row: repo name + difficulty + save ── */}
       <div className="flex items-center justify-between gap-3 mb-4 relative z-10">
