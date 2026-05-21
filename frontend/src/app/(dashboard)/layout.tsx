@@ -1,108 +1,80 @@
-// ============================================================
-// src/app/(dashboard)/layout.tsx
-// ============================================================
-// This layout wraps ALL protected pages — discover, issue detail,
-// dashboard home, etc.
-//
-// Its ONE job: check if the user is logged in.
-// If not → redirect to /login.
-// If yes → render the page with the sidebar.
-//
-// Because this runs on the SERVER before the page renders,
-// there's zero flash of unauthenticated content.
-// ============================================================
-
 import { auth } from "@/lib/auth";
 import { redirect } from "next/navigation";
 import Link from "next/link";
-import { GitBranch, Search, LayoutDashboard, LogOut } from "lucide-react";
+import { GitBranch, LogOut } from "lucide-react";
+import SidebarNav from "@/components/SidebarNav";
 
 export default async function DashboardLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  // ── Auth guard ────────────────────────────────────────────
-  // auth() reads the session cookie server-side.
-  // If there's no session, the user isn't logged in.
   const session = await auth();
-
   if (!session) {
-    // redirect() is a Next.js server function — it stops
-    // rendering and sends the user to /login immediately.
     redirect("/login");
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 flex">
+    <div className="min-h-screen bg-[#080B10] flex text-foreground">
+      {/* Sidebar background blobs for extra depth */}
+      <div className="fixed top-0 left-0 w-60 h-screen overflow-hidden pointer-events-none z-0">
+        <div className="absolute -top-[10%] -left-[10%] w-[120%] h-[40%] bg-gradient-to-br from-blue-500/5 to-cyan-500/0 rounded-full blur-[80px]" />
+      </div>
 
-      {/* ── Sidebar ── */}
-      <aside className="w-60 bg-white border-r border-gray-100 flex flex-col fixed h-full">
-
-        {/* Logo */}
-        <div className="px-5 py-5 border-b border-gray-100">
-          <div className="flex items-center gap-2">
-            <div className="w-7 h-7 bg-gray-900 rounded-lg flex items-center justify-center">
-              <GitBranch className="w-4 h-4 text-white" />
+      <aside className="w-60 bg-[#090C12]/90 backdrop-blur-xl border-r border-white/[0.04] flex flex-col fixed h-full z-10 shadow-[4px_0_24px_rgba(0,0,0,0.4)]">
+        {/* Brand Header */}
+        <div className="px-6 py-6 border-b border-white/[0.04]">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 bg-gradient-to-br from-blue-600 to-indigo-600 rounded-xl flex items-center justify-center shadow-[0_0_15px_rgba(59,130,246,0.35)] relative overflow-hidden group">
+              <span className="absolute inset-0 bg-gradient-to-tr from-cyan-400/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
+              <GitBranch className="w-4.5 h-4.5 text-white relative z-10 animate-pulse" />
             </div>
-            <span className="font-semibold text-gray-900 text-sm">ContribAI</span>
+            <div className="flex flex-col">
+              <span className="font-bold text-transparent bg-clip-text bg-gradient-to-r from-slate-100 to-slate-300 text-sm tracking-tight">ContribAI</span>
+              <span className="text-[10px] text-blue-400/80 font-mono tracking-widest font-semibold uppercase leading-none mt-0.5">Redux Edition</span>
+            </div>
           </div>
         </div>
 
-        {/* Nav links */}
-        <nav className="flex-1 px-3 py-4 space-y-1">
-          <Link
-            href="/discover"
-            className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-gray-600 hover:bg-gray-50 hover:text-gray-900 transition-colors"
-          >
-            <Search className="w-4 h-4" />
-            Discover Issues
-          </Link>
-          <Link
-            href="/dashboard"
-            className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-gray-600 hover:bg-gray-50 hover:text-gray-900 transition-colors"
-          >
-            <LayoutDashboard className="w-4 h-4" />
-            My Dashboard
-          </Link>
-        </nav>
+        {/* Dynamic Sidebar Links */}
+        <SidebarNav />
 
-        {/* User info + sign out at bottom */}
-        <div className="px-3 py-4 border-t border-gray-100">
-          {/* User avatar + name */}
-          <div className="flex items-center gap-3 px-3 py-2 mb-2">
-            {session.user.image && (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={session.user.image}
-                alt={session.user.name ?? "User"}
-                className="w-7 h-7 rounded-full"
-              />
+        {/* Bottom Profile Section */}
+        <div className="p-4 border-t border-white/[0.04] space-y-3 bg-[#090C12]/50">
+          <div className="flex items-center gap-3 p-3 rounded-2xl bg-white/[0.02] border border-white/[0.04] shadow-[inset_0_1px_1px_rgba(255,255,255,0.02)] relative group hover:border-white/[0.08] transition-all duration-300">
+            {session.user.image ? (
+              <div className="relative">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img 
+                  src={session.user.image} 
+                  alt={session.user.name ?? "User"} 
+                  className="w-8 h-8 rounded-full ring-2 ring-blue-500/20 group-hover:ring-blue-500/40 transition-all duration-300" 
+                />
+                <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-emerald-500 border-2 border-[#090C12] rounded-full shadow-[0_0_8px_rgba(16,185,129,0.6)]" />
+              </div>
+            ) : (
+              <div className="w-8 h-8 rounded-full bg-blue-600/10 flex items-center justify-center text-blue-400 font-bold text-xs ring-2 ring-blue-500/20">
+                {session.user.name?.charAt(0) || "U"}
+              </div>
             )}
             <div className="flex-1 min-w-0">
-              <p className="text-xs font-medium text-gray-900 truncate">
-                {session.user.name}
-              </p>
-              <p className="text-xs text-gray-400 truncate">
-                @{session.user.username}
-              </p>
+              <p className="text-xs font-semibold text-slate-200 truncate group-hover:text-white transition-colors">{session.user.name}</p>
+              <p className="text-[10px] text-muted-foreground truncate font-mono">@{session.user.username}</p>
             </div>
           </div>
 
-          {/* Sign out */}
-          <Link
-            href="/api/auth/signout"
-            className="flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-gray-400 hover:text-gray-900 hover:bg-gray-50 transition-colors w-full"
+          <Link 
+            href="/api/auth/signout" 
+            className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-medium text-slate-400 hover:text-rose-400 hover:bg-rose-500/10 border border-transparent hover:border-rose-500/20 transition-all duration-300 w-full group"
           >
-            <LogOut className="w-4 h-4" />
-            Sign out
+            <LogOut className="w-3.5 h-3.5 transition-transform group-hover:-translate-x-0.5" />
+            <span>Sign Out</span>
           </Link>
         </div>
       </aside>
-
-      {/* ── Main content ── */}
-      {/* ml-60 pushes content to the right of the fixed sidebar */}
-      <main className="flex-1 ml-60 p-8">
+      
+      {/* Page Canvas Container */}
+      <main className="flex-1 ml-60 p-8 min-h-screen relative z-10">
         {children}
       </main>
     </div>

@@ -73,6 +73,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         // Store GitHub's access token — we'll use this to
         // make GitHub API calls on behalf of the user
         token.accessToken = account.access_token;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         token.githubUsername = (profile as any).login;
 
         // ── Call your FastAPI backend ──────────────────────
@@ -123,9 +124,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       if (token) {
         session.user.id = token.backendUserId as string;
         session.user.username = token.githubUsername as string;
-        // @ts-ignore — we're adding custom fields to the session
         session.user.accessToken = token.accessToken as string;
-        // @ts-ignore
         session.user.backendToken = token.backendToken as string;
       }
       return session;

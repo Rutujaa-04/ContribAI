@@ -25,6 +25,7 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
+from pydantic import BaseModel
 
 from app.database import get_db
 from app.dependencies import get_current_user
@@ -108,10 +109,9 @@ async def search_github_issues(
 
     headers = {
         "Accept": "application/vnd.github.v3+json",
-        # We use unauthenticated requests for now — 60 req/hr limit
-        # Once you add a GitHub token to .env, uncomment this:
-        "Authorization": f"Bearer {settings.github_token}",
     }
+    if settings.github_token and settings.github_token.strip():
+        headers["Authorization"] = f"Bearer {settings.github_token.strip()}"
 
     async with httpx.AsyncClient(timeout=15.0) as client:
         response = await client.get(
@@ -120,7 +120,7 @@ async def search_github_issues(
             headers=headers,
         )
 
-        if response.status_code == 403:
+        if response.status_code in [403, 429]:
             raise HTTPException(
                 status_code=429,
                 detail="GitHub API rate limit reached. Try again in a minute.",
@@ -183,6 +183,20 @@ def get_or_cache_issue(db: Session, issue_data: dict) -> Issue:
     ).first()
 
     if existing:
+        # Update difficulty and estimated_hours if they differ
+        updated = False
+        if existing.difficulty != issue_data["difficulty"]:
+            existing.difficulty = issue_data["difficulty"]
+            updated = True
+        if existing.estimated_hours != issue_data["estimated_hours"]:
+            existing.estimated_hours = issue_data["estimated_hours"]
+            updated = True
+        if updated:
+            try:
+                db.commit()
+                db.refresh(existing)
+            except Exception:
+                db.rollback()
         return existing
 
     try:
@@ -247,19 +261,87 @@ async def discover_issues(
     effective_level = level or current_user.experience_level or "beginner"
 
     # Fetch from GitHub
-    github_data = await search_github_issues(
-        languages=lang_list,
-        level=effective_level,
-        time_available=time_available,
-        page=page,
-        per_page=per_page,
-    )
+    use_fallback = False
+    try:
+        github_data = await search_github_issues(
+            languages=lang_list,
+            level=effective_level,
+            time_available=time_available,
+            page=page,
+            per_page=per_page,
+        )
+        items = github_data.get("items", [])
+        total_count = github_data.get("total_count", 0)
+    except HTTPException as e:
+        if e.status_code == 429:
+            use_fallback = True
+        else:
+            raise e
 
-    items = github_data.get("items", [])
-    total_count = github_data.get("total_count", 0)
-
-    # Cache issues in our DB + build response
     result_issues = []
+
+    if use_fallback:
+        from app.models.repository import Repository
+        from sqlalchemy import or_
+        
+        # Build local DB query
+        query_db = db.query(Issue).filter(Issue.difficulty == effective_level)
+        
+        # Join with Repository to filter by language
+        query_db = query_db.join(
+            Repository,
+            (Repository.owner == Issue.repo_owner) & (Repository.name == Issue.repo_name)
+        )
+        
+        lang_filters = [Repository.primary_language.ilike(f"%{lang}%") for lang in lang_list]
+        if lang_filters:
+            query_db = query_db.filter(or_(*lang_filters))
+            
+        # Get total count and paginate
+        total_count = query_db.count()
+        db_issues = query_db.offset((page - 1) * per_page).limit(per_page).all()
+        
+        # Build saved_issue_ids for checking saved state
+        saved_issue_ids = set()
+        if db_issues:
+            db_issue_ids = [db_iss.id for db_iss in db_issues]
+            saved = (
+                db.query(UserIssue.issue_id)
+                .filter(
+                    UserIssue.user_id == current_user.id,
+                    UserIssue.issue_id.in_(db_issue_ids)
+                )
+                .all()
+            )
+            saved_issue_ids = {str(row[0]) for row in saved}
+            
+        # Build result_issues directly from DB issues
+        for db_issue in db_issues:
+            result_issues.append({
+                "id": str(db_issue.id),
+                "github_issue_number": db_issue.github_issue_number,
+                "repo_owner": db_issue.repo_owner,
+                "repo_name": db_issue.repo_name,
+                "title": db_issue.title,
+                "body": (db_issue.body or "")[:500],  # Truncate for list view
+                "labels": db_issue.labels,
+                "difficulty": db_issue.difficulty,
+                "estimated_hours": db_issue.estimated_hours,
+                "comment_count": db_issue.comment_count,
+                "html_url": db_issue.html_url,
+                "created_at": db_issue.created_at.isoformat(),
+                "is_saved": str(db_issue.id) in saved_issue_ids,
+                "full_name": f"{db_issue.repo_owner}/{db_issue.repo_name}",
+            })
+            
+        return {
+            "items": result_issues,
+            "total": total_count,
+            "page": page,
+            "per_page": per_page,
+            "using_fallback": True,
+        }
+
     # Get the set of issue IDs the user has already saved
     saved_issue_ids = set()
     if items:
@@ -276,8 +358,23 @@ async def discover_issues(
         )
         saved_issue_ids = {str(row[0]) for row in saved}
 
+    from app.routers.repos import compute_difficulty_score
+
     for item in items:
         parsed = parse_github_issue(item, effective_level)
+        try:
+            diff_res = await compute_difficulty_score(
+                owner=parsed["repo_owner"],
+                repo=parsed["repo_name"],
+                issue_number=parsed["github_issue_number"],
+                labels=parsed["labels"],
+                comment_count=parsed["comment_count"],
+            )
+            parsed["difficulty"] = diff_res["difficulty"]
+            parsed["estimated_hours"] = diff_res["estimated_hours"]
+        except Exception as e:
+            print(f"⚠️ Failed to compute dynamic difficulty: {e}")
+
         db_issue = get_or_cache_issue(db, parsed)
         if db_issue is None:
             continue
@@ -491,3 +588,126 @@ async def get_issue_analysis(
         "generated_at": issue.analysis_generated_at.isoformat(),
         **analysis,
     }
+
+# ============================================================
+# ADD THIS TO THE BOTTOM OF app/routers/issues.py
+# ============================================================
+# Also ensure this import is at the top of issues.py:
+#   from pydantic import BaseModel
+# ============================================================
+
+
+class PRDraftRequest(BaseModel):
+    user_summary: str  # What the user describes they did
+
+
+class PRDraftResponse(BaseModel):
+    title: str
+    body: str
+
+
+# ── POST /issues/{issue_id}/pr-draft ──────────────────────────
+@router.post("/{issue_id}/pr-draft", response_model=PRDraftResponse)
+async def generate_pr_draft(
+    issue_id: str,
+    request: PRDraftRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """
+    Generates a PR title and description body for a given issue.
+
+    Uses:
+    - The issue title + body for context
+    - The cached AI analysis (if available) for implementation details
+    - The user's own summary of what they did
+
+    Calls OpenRouter to produce a professional PR draft following
+    standard open source conventions.
+    """
+    from openai import OpenAI
+
+    issue = db.query(Issue).filter(Issue.id == issue_id).first()
+    if not issue:
+        raise HTTPException(status_code=404, detail="Issue not found")
+
+    if not request.user_summary.strip():
+        raise HTTPException(status_code=400, detail="user_summary cannot be empty")
+
+    # Pull cached analysis for extra context (optional — works without it)
+    analysis_context = ""
+    if issue.analysis_cache:
+        cache = issue.analysis_cache
+        explanation = cache.get("plain_explanation", "")
+        steps = cache.get("implementation_steps", [])
+        steps_text = "\n".join(
+            f"- {s.get('title', '')}" for s in steps if isinstance(s, dict)
+        )
+        if explanation:
+            analysis_context = f"\nAI breakdown of the issue:\n{explanation}"
+        if steps_text:
+            analysis_context += f"\nImplementation steps:\n{steps_text}"
+
+    prompt = f"""You are helping a developer write a professional pull request for an open source project.
+
+GITHUB ISSUE:
+Title: {issue.title}
+Repo: {issue.repo_owner}/{issue.repo_name}
+Body: {(issue.body or '')[:1000]}
+{analysis_context}
+
+DEVELOPER'S DESCRIPTION OF WHAT THEY DID:
+{request.user_summary}
+
+Write a pull request title and description body following standard open source conventions.
+
+Rules:
+- Title: concise, imperative mood, under 72 characters (e.g. "Fix cache invalidation in user session handler")
+- Body: use markdown. Include sections: ## Summary, ## Changes Made, ## Testing. Be specific but concise.
+- Reference the issue number using "Fixes #{issue.github_issue_number}" in the Summary section.
+- Do not invent code or details not mentioned by the developer — use their summary as the source of truth.
+- Keep a professional but approachable tone.
+
+Respond with ONLY a valid JSON object, no markdown fences:
+{{
+  "title": "PR title here",
+  "body": "Full markdown PR body here"
+}}"""
+
+    client = OpenAI(
+        base_url="https://openrouter.ai/api/v1",
+        api_key=settings.openrouter_api_key,
+    )
+
+    import json, re
+
+    try:
+        response = client.chat.completions.create(
+            model="openrouter/auto",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.4,
+        )
+        raw = response.choices[0].message.content.strip()
+
+        # Strip markdown fences if model adds them
+        if raw.startswith("```"):
+            raw = re.sub(r"^```(?:json)?\n?", "", raw)
+            raw = re.sub(r"\n?```$", "", raw)
+            raw = raw.strip()
+
+        data = json.loads(raw)
+        return PRDraftResponse(
+            title=data.get("title", f"Fix: {issue.title[:60]}"),
+            body=data.get("body", ""),
+        )
+
+    except json.JSONDecodeError:
+        raise HTTPException(
+            status_code=502,
+            detail="AI returned an unexpected format. Please try again.",
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=502,
+            detail=f"PR draft generation failed: {str(e)}",
+        )

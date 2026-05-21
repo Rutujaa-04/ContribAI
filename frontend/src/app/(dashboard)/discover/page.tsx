@@ -74,6 +74,7 @@ export default function DiscoverPage() {
   const [filterLevel, setFilterLevel] = useState("beginner");
   const [filterLangs, setFilterLangs] = useState<string[]>([]);
   const [showFilters, setShowFilters] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
 
   // ── Load user profile on mount ─────────────────────────────
   useEffect(() => {
@@ -127,7 +128,9 @@ export default function DiscoverPage() {
         setHasNext(data.has_next);
         setTotalCount(data.total);
         setPage(currentPage);
-      } catch (e: any) {
+      } catch (err) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const e = err as any;
         const msg =
           e?.response?.data?.detail ||
           "Failed to load issues. GitHub API may be rate-limited — try again in a minute.";
@@ -142,8 +145,10 @@ export default function DiscoverPage() {
   // Run whenever user loads or filters change
   useEffect(() => {
     if (user && !showOnboarding) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       fetchIssues(1, true);
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, showOnboarding, filterLevel, filterLangs]);
 
   // ── Handlers ───────────────────────────────────────────────
@@ -158,13 +163,11 @@ export default function DiscoverPage() {
     setFilterLevel(level);
     setFilterLangs(skillTags);
     setShowOnboarding(false);
-    // fetchIssues will trigger via useEffect
   };
 
   // Called by IssueCard save button
   const handleSaveIssue = async (issueId: string) => {
     await apiClient.post(`/issues/${issueId}/save`);
-    // Optimistic UI — IssueCard manages its own saved state
   };
 
   const toggleLangFilter = (lang: string) => {
@@ -173,8 +176,20 @@ export default function DiscoverPage() {
     );
   };
 
-  // ── Render ─────────────────────────────────────────────────
+  // ── Local filtering for instant results ────────────────────
+  const filteredIssues = issues.filter((issue) => {
+    const query = searchQuery.toLowerCase();
+    return (
+      issue.title.toLowerCase().includes(query) ||
+      issue.full_name.toLowerCase().includes(query) ||
+      (issue.body && issue.body.toLowerCase().includes(query))
+    );
+  });
 
+  // Calculate active filter count
+  const activeFiltersCount = (filterLangs.length > 0 ? filterLangs.length : 0) + (filterLevel ? 1 : 0);
+
+  // ── Render ─────────────────────────────────────────────────
   return (
     <>
       {/* Onboarding modal — rendered over the page */}
@@ -182,148 +197,190 @@ export default function DiscoverPage() {
         <OnboardingModal onComplete={handleOnboardingComplete} />
       )}
 
-      <div>
-        {/* ── Page header ── */}
-        <div className="flex items-start justify-between mb-6">
+      {/* Decorative meshes for background depth */}
+      <div className="absolute top-0 right-1/4 w-96 h-96 mesh-blob-blue opacity-50 pointer-events-none" />
+      <div className="absolute top-[20%] right-[10%] w-80 h-80 mesh-blob-purple opacity-30 pointer-events-none" />
+
+      <div className="max-w-5xl mx-auto space-y-6 relative z-10 animate-slide-up">
+        {/* ── Page Header ── */}
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">
+            <h1 className="text-3xl font-extrabold tracking-tight text-transparent bg-clip-text bg-gradient-to-r from-slate-100 via-slate-200 to-slate-400">
               Discover Issues
             </h1>
-            <p className="mt-1 text-gray-500 text-sm">
-              Open source issues matched to your skills
+            <p className="mt-1 text-muted-foreground text-sm font-medium flex items-center gap-2">
+              <span>Open source issues curated for your skills</span>
               {totalCount > 0 && !loading && (
-                <span className="ml-2 text-gray-400">
-                  — {totalCount.toLocaleString()} found
-                </span>
+                <>
+                  <span className="text-white/10">•</span>
+                  <span className="text-blue-400/90 font-semibold bg-blue-500/10 px-2 py-0.5 rounded-lg border border-blue-500/15 font-mono text-xs">
+                    {totalCount.toLocaleString()} matches
+                  </span>
+                </>
               )}
             </p>
           </div>
 
-          {/* Filter toggle + refresh */}
-          <div className="flex items-center gap-2">
+          {/* Quick Toolbar */}
+          <div className="flex items-center gap-3">
             <button
               onClick={() => fetchIssues(1, true)}
               disabled={loading}
-              className="p-2 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors"
-              title="Refresh results"
+              className="p-2.5 rounded-xl bg-white/[0.02] border border-white/[0.06] text-muted-foreground hover:text-white hover:bg-white/[0.06] hover:border-white/[0.12] transition-all duration-300 disabled:opacity-50"
+              title="Refresh matches"
             >
-              <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
+              <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin text-blue-400" : ""}`} />
             </button>
             <button
               onClick={() => setShowFilters((v) => !v)}
-              className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all duration-300 border ${
                 showFilters
-                  ? "bg-gray-900 text-white"
-                  : "text-gray-600 hover:bg-gray-100 border border-gray-200"
+                  ? "bg-gradient-to-r from-blue-600 to-indigo-600 text-white border-blue-500/50 shadow-[0_4px_20px_rgba(59,130,246,0.3),inset_0_1px_1px_rgba(255,255,255,0.2)]"
+                  : "text-slate-300 bg-white/[0.02] border-white/[0.06] hover:bg-white/[0.06] hover:border-white/[0.12]"
               }`}
             >
               <SlidersHorizontal className="w-4 h-4" />
-              Filters
+              <span>Filters</span>
+              {activeFiltersCount > 0 && (
+                <span className={`ml-1 px-1.5 py-0.5 text-[10px] font-bold rounded-full ${showFilters ? "bg-white text-blue-600" : "bg-blue-500/20 text-blue-400"}`}>
+                  {activeFiltersCount}
+                </span>
+              )}
             </button>
           </div>
         </div>
 
-        {/* ── Filter panel (collapsible) ── */}
-        {showFilters && (
-          <div className="bg-white rounded-xl border border-gray-100 p-4 mb-5 space-y-4">
-            {/* Experience level */}
-            <div>
-              <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">
-                Difficulty
-              </p>
-              <div className="flex gap-2 flex-wrap">
-                {LEVEL_OPTIONS.map((opt) => (
-                  <button
-                    key={opt.value}
-                    onClick={() => setFilterLevel(opt.value)}
-                    className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
-                      filterLevel === opt.value
-                        ? "bg-gray-900 text-white border-gray-900"
-                        : "border-gray-200 text-gray-600 hover:border-gray-400"
-                    }`}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* Language filter */}
-            <div>
-              <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">
-                Languages
-              </p>
-              <div className="flex gap-2 flex-wrap">
-                {LANG_OPTIONS.map((lang) => (
-                  <button
-                    key={lang}
-                    onClick={() => toggleLangFilter(lang)}
-                    className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors capitalize ${
-                      filterLangs.includes(lang)
-                        ? "bg-gray-900 text-white border-gray-900"
-                        : "border-gray-200 text-gray-600 hover:border-gray-400"
-                    }`}
-                  >
-                    {lang}
-                  </button>
-                ))}
-                {filterLangs.length > 0 && (
-                  <button
-                    onClick={() => setFilterLangs([])}
-                    className="px-3 py-1.5 rounded-lg text-sm text-red-500 hover:bg-red-50 transition-colors"
-                  >
-                    Clear
-                  </button>
-                )}
-              </div>
-            </div>
+        {/* ── Modern Search Bar & Collapsible Filters ── */}
+        <div className="glass-panel p-2 shadow-2xl relative border border-white/[0.04] bg-slate-900/40 backdrop-blur-xl">
+          <div className="flex items-center gap-3 px-3 py-1">
+            <Search className="w-5 h-5 text-muted-foreground/60 flex-shrink-0" />
+            <input
+              type="text"
+              placeholder="Filter by repository name, issue title, or description..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full bg-transparent border-0 text-slate-100 placeholder-muted-foreground/50 text-sm focus:ring-0 focus:outline-none py-2"
+            />
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery("")}
+                className="text-xs text-muted-foreground hover:text-white px-2 py-1 rounded bg-white/5 border border-white/[0.06] transition-colors"
+              >
+                Clear
+              </button>
+            )}
           </div>
-        )}
+
+          {/* ── Segmented Filters Section (Collapsible) ── */}
+          {showFilters && (
+            <div className="border-t border-white/[0.04] mt-2 pt-4 pb-2 px-3 space-y-4 animate-popup">
+              {/* Experience level */}
+              <div>
+                <p className="text-[10px] font-bold text-muted-foreground/60 uppercase tracking-widest mb-2 font-mono">
+                  Difficulty Level
+                </p>
+                <div className="flex gap-2 flex-wrap">
+                  {LEVEL_OPTIONS.map((opt) => (
+                    <button
+                      key={opt.value}
+                      onClick={() => setFilterLevel(opt.value)}
+                      className={`px-4 py-2 rounded-xl text-xs font-semibold border transition-all duration-300 ${
+                        filterLevel === opt.value
+                          ? "bg-blue-600/15 text-blue-400 border-blue-500/35 shadow-[0_0_15px_rgba(59,130,246,0.12)]"
+                          : "border-white/[0.06] text-slate-400 hover:border-white/[0.12] hover:text-white bg-white/[0.01]"
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Language filter */}
+              <div>
+                <p className="text-[10px] font-bold text-muted-foreground/60 uppercase tracking-widest mb-2 font-mono">
+                  Languages
+                </p>
+                <div className="flex gap-2 flex-wrap">
+                  {LANG_OPTIONS.map((lang) => (
+                    <button
+                      key={lang}
+                      onClick={() => toggleLangFilter(lang)}
+                      className={`px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all duration-300 capitalize ${
+                        filterLangs.includes(lang)
+                          ? "bg-blue-600/15 text-blue-400 border-blue-500/35 shadow-[0_0_15px_rgba(59,130,246,0.12)]"
+                          : "border-white/[0.06] text-slate-400 hover:border-white/[0.12] hover:text-white bg-white/[0.01]"
+                      }`}
+                    >
+                      {lang}
+                    </button>
+                  ))}
+                  {filterLangs.length > 0 && (
+                    <button
+                      onClick={() => setFilterLangs([])}
+                      className="px-3 py-1.5 rounded-xl text-xs font-semibold text-rose-400 hover:bg-rose-500/10 border border-transparent hover:border-rose-500/20 transition-all duration-300"
+                    >
+                      Reset Languages
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
 
         {/* ── Error state ── */}
         {error && (
-          <div className="bg-red-50 border border-red-200 rounded-xl p-4 mb-5 flex items-start gap-3">
-            <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0 mt-0.5" />
+          <div className="bg-rose-500/5 border border-rose-500/15 rounded-2xl p-5 flex items-start gap-3.5 shadow-lg">
+            <AlertCircle className="w-5 h-5 text-rose-400 flex-shrink-0 mt-0.5" />
             <div>
-              <p className="text-sm font-medium text-red-800">Could not load issues</p>
-              <p className="text-sm text-red-600 mt-0.5">{error}</p>
+              <p className="text-sm font-semibold text-rose-400">Could not fetch matches</p>
+              <p className="text-xs text-rose-300/80 mt-1 leading-relaxed">{error}</p>
             </div>
           </div>
         )}
 
-        {/* ── Loading skeleton ── */}
-        {loading && issues.length === 0 && (
-          <div className="space-y-3">
-            {[...Array(5)].map((_, i) => (
+        {/* ── Loading state (Shimmer-Dark Skeletons) ── */}
+        {loading && filteredIssues.length === 0 && (
+          <div className="space-y-4">
+            {[...Array(4)].map((_, i) => (
               <div
                 key={i}
-                className="bg-white rounded-xl border border-gray-100 p-5 animate-pulse"
+                className="tactile-card p-6 border border-white/[0.04] bg-[#10141D]/90 h-[190px] flex flex-col justify-between"
               >
-                <div className="flex justify-between mb-3">
-                  <div className="h-4 bg-gray-100 rounded w-40" />
-                  <div className="h-4 bg-gray-100 rounded w-20" />
+                <div className="space-y-3">
+                  <div className="flex justify-between items-center">
+                    <div className="h-5 shimmer-dark rounded-lg w-48" />
+                    <div className="h-5 shimmer-dark rounded-full w-20" />
+                  </div>
+                  <div className="h-6 shimmer-dark rounded-lg w-3/4" />
+                  <div className="h-4 shimmer-dark rounded-lg w-full" />
                 </div>
-                <div className="h-4 bg-gray-100 rounded w-3/4 mb-2" />
-                <div className="h-3 bg-gray-50 rounded w-full mb-1" />
-                <div className="h-3 bg-gray-50 rounded w-2/3" />
+                <div className="flex justify-between items-center pt-4 border-t border-white/[0.03]">
+                  <div className="h-4 shimmer-dark rounded w-32" />
+                  <div className="h-4 shimmer-dark rounded w-20" />
+                </div>
               </div>
             ))}
           </div>
         )}
 
-        {/* ── Issue list ── */}
-        {!loading && issues.length === 0 && !error && (
-          <div className="bg-white rounded-xl border border-gray-100 p-12 text-center">
-            <div className="w-10 h-10 bg-gray-50 rounded-xl flex items-center justify-center mx-auto mb-3">
-              <Search className="w-5 h-5 text-gray-400" />
+        {/* ── Empty state ── */}
+        {!loading && filteredIssues.length === 0 && !error && (
+          <div className="glass-panel p-16 text-center border border-white/[0.04] bg-slate-900/20 shadow-xl">
+            <div className="w-12 h-12 bg-white/[0.02] border border-white/[0.06] rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-[inset_0_1px_1px_rgba(255,255,255,0.01)]">
+              <Search className="w-5 h-5 text-muted-foreground/60" />
             </div>
-            <p className="text-gray-500 text-sm">No issues found for these filters.</p>
-            <p className="text-gray-400 text-xs mt-1">Try adjusting your language or difficulty filters.</p>
+            <p className="text-slate-200 font-bold text-base">No open source issues found</p>
+            <p className="text-muted-foreground text-xs mt-1.5 max-w-sm mx-auto leading-relaxed">
+              We couldn&apos;t find matching issues. Try refining your local search query or expanding the repository languages in the filters panel.
+            </p>
           </div>
         )}
 
-        <div className="space-y-3">
-          {issues.map((issue) => (
+        {/* ── Issue list ── */}
+        <div className="space-y-4">
+          {filteredIssues.map((issue) => (
             <IssueCard
               key={issue.id}
               issue={issue}
@@ -334,10 +391,10 @@ export default function DiscoverPage() {
 
         {/* ── Load more ── */}
         {hasNext && !loading && (
-          <div className="mt-6 text-center">
+          <div className="mt-8 text-center">
             <button
               onClick={() => fetchIssues(page + 1, false)}
-              className="px-5 py-2.5 rounded-xl border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors"
+              className="px-6 py-3 rounded-xl border border-white/[0.06] bg-white/[0.01] text-sm font-semibold text-slate-300 hover:bg-white/[0.04] hover:text-white hover:border-white/[0.12] transition-all duration-300 shadow-[0_4px_12px_rgba(0,0,0,0.15)] hover:scale-102 active:scale-98"
             >
               Load more issues
             </button>
@@ -345,12 +402,10 @@ export default function DiscoverPage() {
         )}
 
         {/* Loading indicator for "load more" */}
-        {loading && issues.length > 0 && (
-          <div className="mt-6 text-center">
-            <div className="inline-flex items-center gap-2 text-sm text-gray-400">
-              <RefreshCw className="w-4 h-4 animate-spin" />
-              Loading more...
-            </div>
+        {loading && filteredIssues.length > 0 && (
+          <div className="mt-8 text-center flex items-center justify-center gap-2.5 text-xs text-muted-foreground/80 font-mono tracking-wider uppercase">
+            <RefreshCw className="w-4 h-4 animate-spin text-blue-400" />
+            <span>Scanning repositories...</span>
           </div>
         )}
       </div>

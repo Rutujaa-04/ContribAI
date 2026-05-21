@@ -219,21 +219,38 @@ EXT_TO_LANG_SIMPLE = {
 
 # ── Main ingestion function ───────────────────────────────────────────────────
 
+# Global dictionary to serialize ingestion per repository (avoids concurrent ingestion duplicate keys)
+_repo_ingest_locks = {}
+_repo_ingest_locks_lock = asyncio.Lock()
+
+async def get_repo_ingest_lock(full_name: str) -> asyncio.Lock:
+    async with _repo_ingest_locks_lock:
+        if full_name not in _repo_ingest_locks:
+            _repo_ingest_locks[full_name] = asyncio.Lock()
+        return _repo_ingest_locks[full_name]
+
+
 async def ingest_repository(
     owner: str,
     repo_name: str,
     db: Session,
     force_refresh: bool = False,
 ) -> dict:
+    full_name = f"{owner}/{repo_name}"
+    full_name_lower = full_name.lower()
+    lock = await get_repo_ingest_lock(full_name_lower)
+    async with lock:
+        return await _ingest_repository_unlocked(owner, repo_name, db, force_refresh)
+
+
+async def _ingest_repository_unlocked(
+    owner: str,
+    repo_name: str,
+    db: Session,
+    force_refresh: bool = False,
+) -> dict:
     """
-    Full ingestion pipeline for a GitHub repo.
-    1. Fetch file tree
-    2. Detect tech stack from manifests
-    3. Fetch + chunk source files
-    4. Embed chunks via Ollama (local, no rate limits)
-    5. Store in pgvector
-    6. Generate arch summary via LLM
-    7. Cache everything in DB
+    Full ingestion pipeline for a GitHub repo (unlocked core).
     """
     full_name = f"{owner}/{repo_name}"
 
@@ -330,7 +347,15 @@ async def ingest_repository(
     )
 
     # Step 8: Upsert Repository record
-    if existing:
+    # Query again in case the repository was renamed, or ingested concurrently
+    existing_by_id = db.query(Repository).filter(Repository.github_repo_id == meta["id"]).first()
+    if existing_by_id:
+        repo_obj = existing_by_id
+        # Update details in case of rename
+        repo_obj.full_name = full_name
+        repo_obj.owner = owner
+        repo_obj.name = repo_name
+    elif existing:
         repo_obj = existing
     else:
         repo_obj = Repository(
@@ -346,7 +371,12 @@ async def ingest_repository(
     repo_obj.description = meta.get("description")
     repo_obj.stars = meta.get("stargazers_count", 0)
     repo_obj.primary_language = meta.get("language")
-    repo_obj.tech_stack = stack_info.get("frameworks", []) + stack_info.get("languages", [])
+    
+    # Unique values preserving order
+    raw_stack = stack_info.get("frameworks", []) + stack_info.get("languages", [])
+    seen_tech = set()
+    repo_obj.tech_stack = [x for x in raw_stack if not (x in seen_tech or seen_tech.add(x))]
+    
     repo_obj.arch_summary = arch_summary
     repo_obj.has_contributing_md = bool(contributing_content)
     repo_obj.contributing_md_summary = contributing_summary

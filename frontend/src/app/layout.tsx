@@ -50,8 +50,8 @@ export default async function RootLayout({
   const session = await auth();
 
   return (
-    <html lang="en" className={inter.variable}>
-      <body className="bg-gray-50 text-gray-900 antialiased">
+    <html lang="en" className={`${inter.variable} dark`}>
+      <body className="bg-background text-foreground antialiased">
         {/*
           SessionProvider makes the session available to ALL
           components via useSession() hook.
