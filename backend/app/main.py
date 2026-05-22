@@ -17,6 +17,16 @@ from app.routers import auth, issues, users, repos, webhooks
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     print("🚀 Starting ContribAI backend...")
+    # Enable the pgvector extension automatically on startup
+    from sqlalchemy import text
+    try:
+        with engine.connect() as conn:
+            conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector;"))
+            conn.commit()
+        print("✅ pgvector extension enabled/verified")
+    except Exception as e:
+        print(f"⚠️ Could not automatically enable pgvector: {e}")
+        
     Base.metadata.create_all(bind=engine)
     print("✅ Database tables ready")
     yield
