@@ -26,8 +26,8 @@ Entering a massive, unfamiliar codebase to solve your first "good first issue" i
   Filter active, open GitHub issues by difficulty (beginner, intermediate, advanced) and target programming languages.
 - ⚡ **RAG Codebase Ingestion**  
   Ingests whole public GitHub repositories in seconds. It parses the file trees, extracts files, chunks source code, generates high-density vector embeddings, and indexes them in a Postgres vector store (`pgvector`).
-- 🤖 **Interactive Developer Co-Pilot Chat**  
-  Chat directly with the repository! Ask questions like *"Where is the routing handled?"* or *"Can you write a test blueprint for this issue?"* and get highly precise, context-aware answers grounded in the actual codebase files.
+- 🤖 **Deep RAG-Powered Issue Walkthroughs**  
+  Provides context-aware RAG analysis for specific issues. It queries the vector store to locate exact files and code structures relevant to the issue, generating highly precise code blueprints.
 - 📋 **Automated Action Checklists**  
   Generates step-by-step local setup guidelines and targeted code change instructions to guide your contribution from start to finish.
 - ✍️ **One-Click PR Description Generator**  
@@ -50,7 +50,7 @@ graph TD
     BE -->|Code Chunking| AST[AST-based Parser]
     AST -->|Gemini Embeddings| GEMINI[Google Gemini API]
     GEMINI --> DB
-    BE <-->|Context-Aware Chat| OR[OpenRouter API / LLM]
+    BE <-->|Context-Aware Analysis| OR[OpenRouter API / LLM]
 ```
 
 ---
@@ -69,7 +69,7 @@ graph TD
 - **Database Migrations:** Alembic
 - **AI Integrations:**
   - Google Gemini API (for high-speed, dense code embeddings)
-  - OpenRouter API (for advanced repository orchestration and chat queries)
+  - OpenRouter API (for advanced repository orchestration and deep issue analysis)
 
 ### Database & Hosting
 - **Database:** Neon Serverless PostgreSQL with native `pgvector` support
