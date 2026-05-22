@@ -31,7 +31,6 @@ export default async function DashboardLayout({
             </div>
             <div className="flex flex-col">
               <span className="font-bold text-transparent bg-clip-text bg-gradient-to-r from-slate-100 to-slate-300 text-sm tracking-tight">ContribAI</span>
-              <span className="text-[10px] text-blue-400/80 font-mono tracking-widest font-semibold uppercase leading-none mt-0.5">Redux Edition</span>
             </div>
           </div>
         </div>
