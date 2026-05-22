@@ -104,17 +104,21 @@ export default function DiscoverPage() {
 
   // ── Fetch issues whenever filters or page change ───────────
   const fetchIssues = useCallback(
-    async (currentPage = 1, replace = true) => {
+    async (currentPage = 1, replace = true, forceRefresh = false) => {
       if (!user || showOnboarding) return;
       setLoading(true);
       setError(null);
 
       try {
-        const params: Record<string, string | number> = {
+        const params: Record<string, string | number | boolean> = {
           level: filterLevel,
           page: currentPage,
           per_page: 10,
         };
+
+        if (forceRefresh) {
+          params.refresh = true;
+        }
 
         // Pass language filter if set
         const langs = filterLangs.length > 0 ? filterLangs : user.skill_tags;
@@ -146,11 +150,14 @@ export default function DiscoverPage() {
     [user, showOnboarding, filterLevel, filterLangs, filterSort]
   );
 
-  // Run whenever user loads or filters change
+  // Run whenever user loads or filters change with 400ms debounce
   useEffect(() => {
     if (user && !showOnboarding) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      fetchIssues(1, true);
+      const timer = setTimeout(() => {
+        fetchIssues(1, true);
+      }, 400);
+
+      return () => clearTimeout(timer);
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, showOnboarding, filterLevel, filterLangs, filterSort]);
@@ -228,7 +235,7 @@ export default function DiscoverPage() {
           {/* Quick Toolbar */}
           <div className="flex items-center gap-3">
             <button
-              onClick={() => fetchIssues(1, true)}
+              onClick={() => fetchIssues(1, true, true)}
               disabled={loading}
               className="p-2.5 rounded-xl bg-white/[0.02] border border-white/[0.06] text-muted-foreground hover:text-white hover:bg-white/[0.06] hover:border-white/[0.12] transition-all duration-300 disabled:opacity-50"
               title="Refresh matches"

@@ -13,6 +13,7 @@ import re
 import asyncio
 from datetime import datetime, timedelta
 from typing import List, Optional
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -45,12 +46,12 @@ MANIFEST_FILES = {
 MAX_FILE_CHARS = 8000
 
 
-async def fetch_repo_tree(owner: str, repo: str) -> List[dict]:
+async def fetch_repo_tree(owner: str, repo: str, client: Optional[httpx.AsyncClient] = None) -> List[dict]:
     """
     Fetches the full file tree of a GitHub repo using the Git Trees API.
     Returns flat list of file objects: [{path, type, size, url}, ...]
     """
-    async with httpx.AsyncClient(timeout=20.0) as client:
+    if client is not None:
         repo_resp = await client.get(
             f"https://api.github.com/repos/{owner}/{repo}",
             headers=GITHUB_HEADERS,
@@ -67,33 +68,52 @@ async def fetch_repo_tree(owner: str, repo: str) -> List[dict]:
             return []
         return tree_resp.json().get("tree", [])
 
+    async with httpx.AsyncClient(timeout=20.0) as client_local:
+        return await fetch_repo_tree(owner, repo, client=client_local)
 
-async def fetch_file_content(owner: str, repo: str, path: str) -> Optional[str]:
+
+async def fetch_file_content(
+    owner: str,
+    repo: str,
+    path: str,
+    client: Optional[httpx.AsyncClient] = None,
+) -> Optional[str]:
     """
     Fetches raw content of a single file via GitHub Contents API.
     Returns decoded text or None if it fails/is too large.
     """
     import base64
-    async with httpx.AsyncClient(timeout=15.0) as client:
-        resp = await client.get(
-            f"https://api.github.com/repos/{owner}/{repo}/contents/{path}",
-            headers=GITHUB_HEADERS,
-        )
-        if resp.status_code != 200:
-            return None
-        data = resp.json()
-        if data.get("encoding") == "base64" and data.get("content"):
-            try:
-                return base64.b64decode(data["content"]).decode("utf-8", errors="ignore")
-            except Exception:
+    
+    if client is not None:
+        try:
+            resp = await client.get(
+                f"https://api.github.com/repos/{owner}/{repo}/contents/{path}",
+                headers=GITHUB_HEADERS,
+            )
+            if resp.status_code != 200:
                 return None
-        return None
+            data = resp.json()
+            if data.get("encoding") == "base64" and data.get("content"):
+                try:
+                    return base64.b64decode(data["content"]).decode("utf-8", errors="ignore")
+                except Exception:
+                    return None
+            return None
+        except Exception:
+            return None
+
+    async with httpx.AsyncClient(timeout=15.0) as client_local:
+        return await fetch_file_content(owner, repo, path, client=client_local)
 
 
-async def fetch_contributing_md(owner: str, repo: str) -> Optional[str]:
+async def fetch_contributing_md(
+    owner: str,
+    repo: str,
+    client: Optional[httpx.AsyncClient] = None,
+) -> Optional[str]:
     """Tries to fetch CONTRIBUTING.md from repo root."""
     for path in ["CONTRIBUTING.md", "CONTRIBUTING", ".github/CONTRIBUTING.md"]:
-        content = await fetch_file_content(owner, repo, path)
+        content = await fetch_file_content(owner, repo, path, client=client)
         if content:
             return content
     return None
@@ -101,7 +121,12 @@ async def fetch_contributing_md(owner: str, repo: str) -> Optional[str]:
 
 # ── Tech stack detection ──────────────────────────────────────────────────────
 
-async def detect_tech_stack(owner: str, repo: str, file_paths: List[str]) -> dict:
+async def detect_tech_stack(
+    owner: str,
+    repo: str,
+    file_paths: List[str],
+    client: Optional[httpx.AsyncClient] = None,
+) -> dict:
     """
     Reads manifest files to detect the tech stack.
     Returns {"languages": [...], "frameworks": [...], "has_tests": bool}
@@ -137,7 +162,7 @@ async def detect_tech_stack(owner: str, repo: str, file_paths: List[str]) -> dic
 
     # Read package.json for JS/TS frameworks
     if "package.json" in found_manifests:
-        content = await fetch_file_content(owner, repo, "package.json")
+        content = await fetch_file_content(owner, repo, "package.json", client=client)
         if content:
             import json
             try:
@@ -238,7 +263,9 @@ async def ingest_repository(
     full_name = f"{owner}/{repo_name}"
 
     # Check if already ingested recently (cache for 24h)
-    existing = db.query(Repository).filter(Repository.full_name == full_name).first()
+    existing = db.query(Repository).filter(
+        func.lower(Repository.full_name) == full_name.lower()
+    ).first()
     if existing and not force_refresh and existing.last_ingested_at:
         age = datetime.utcnow() - existing.last_ingested_at
         if age < timedelta(hours=24):
@@ -250,8 +277,8 @@ async def ingest_repository(
 
     print(f"🔍 Starting ingestion for {full_name}...")
 
-    # Step 1: Fetch repo metadata + file tree
     async with httpx.AsyncClient(timeout=20.0) as client:
+        # Step 1: Fetch repo metadata + file tree
         meta_resp = await client.get(
             f"https://api.github.com/repos/{owner}/{repo_name}",
             headers=GITHUB_HEADERS,
@@ -260,59 +287,64 @@ async def ingest_repository(
             return {"status": "error", "message": "GitHub API returned non-200 for repo metadata"}
         meta = meta_resp.json()
 
-    tree = await fetch_repo_tree(owner, repo_name)
-    all_paths = [item["path"] for item in tree if item["type"] == "blob"]
+        tree = await fetch_repo_tree(owner, repo_name, client=client)
+        all_paths = [item["path"] for item in tree if item["type"] == "blob"]
 
-    # Step 2: Detect tech stack
-    stack_info = await detect_tech_stack(owner, repo_name, all_paths)
+        # Step 2: Detect tech stack
+        stack_info = await detect_tech_stack(owner, repo_name, all_paths, client=client)
 
-    # Step 3: Select files to chunk
-    source_files = [
-        p for p in all_paths
-        if any(p.endswith(ext) for ext in SUPPORTED_EXTENSIONS)
-        and not any(skip in p for skip in [
-            "node_modules", ".min.", "dist/", "build/", "__pycache__",
-            "vendor/", ".test.", ".spec.", "migrations/", "generated/",
-        ])
-    ]
+        # Step 3: Select files to chunk
+        source_files = [
+            p for p in all_paths
+            if any(p.endswith(ext) for ext in SUPPORTED_EXTENSIONS)
+            and not any(skip in p for skip in [
+                "node_modules", ".min.", "dist/", "build/", "__pycache__",
+                "vendor/", ".test.", ".spec.", "migrations/", "generated/",
+            ])
+        ]
 
-    # Cap at 40 files — prioritise shallow paths (top-level and src/)
-    source_files.sort(key=lambda p: (p.count("/"), len(p)))
-    source_files = source_files[:40]
+        # Cap at 40 files — prioritise shallow paths (top-level and src/)
+        source_files.sort(key=lambda p: (p.count("/"), len(p)))
+        source_files = source_files[:40]
 
-    print(f"📁 Found {len(source_files)} source files to chunk")
+        print(f"📁 Found {len(source_files)} source files to chunk")
 
-    # Step 4: Fetch files and build chunks
-    all_chunks = []
-    for path in source_files:
-        content = await fetch_file_content(owner, repo_name, path)
-        if not content or len(content.strip()) < 50:
-            continue
-        ext = "." + path.rsplit(".", 1)[-1] if "." in path else ""
-        language = EXT_TO_LANG_SIMPLE.get(ext, "unknown")
-        file_chunks = chunk_source_file(path, content, language)
-        for chunk in file_chunks:
-            all_chunks.append({**chunk, "file_path": path, "language": language})
+        # Step 4: Fetch files and build chunks concurrently
+        sem = asyncio.Semaphore(10)
 
-    print(f"✂️  Generated {len(all_chunks)} chunks from source files")
+        async def fetch_and_parse(path: str):
+            async with sem:
+                content = await fetch_file_content(owner, repo_name, path, client=client)
+                if not content or len(content.strip()) < 50:
+                    return []
+                ext = "." + path.rsplit(".", 1)[-1] if "." in path else ""
+                language = EXT_TO_LANG_SIMPLE.get(ext, "unknown")
+                file_chunks = chunk_source_file(path, content, language)
+                return [{**chunk, "file_path": path, "language": language} for chunk in file_chunks]
 
-    # Step 5: Embed chunks in batches — Ollama is local so no rate limits
-    BATCH_SIZE = 20
-    embedded_chunks = []
-    total_batches = (len(all_chunks) - 1) // BATCH_SIZE + 1 if all_chunks else 0
-    for i in range(0, len(all_chunks), BATCH_SIZE):
-        batch = all_chunks[i:i + BATCH_SIZE]
-        texts = [c["text"] for c in batch]
-        embeddings = get_embeddings_batch(texts)
-        for chunk, emb in zip(batch, embeddings):
-            embedded_chunks.append({**chunk, "embedding": emb})
-        print(f"  Embedded batch {i // BATCH_SIZE + 1}/{total_batches}")
+        tasks = [fetch_and_parse(p) for p in source_files]
+        results = await asyncio.gather(*tasks)
 
-    # Step 6: Fetch and summarise CONTRIBUTING.md
-    contributing_content = await fetch_contributing_md(owner, repo_name)
-    contributing_summary = None
-    if contributing_content:
-        contributing_summary = await summarise_contributing_md(contributing_content)
+        all_chunks = []
+        for file_chunks in results:
+            all_chunks.extend(file_chunks)
+
+        print(f"✂️  Generated {len(all_chunks)} chunks from source files")
+
+        # Step 5: Embed chunks in batches — Ollama is local so no rate limits
+        BATCH_SIZE = 20
+        embedded_chunks = []
+        total_batches = (len(all_chunks) - 1) // BATCH_SIZE + 1 if all_chunks else 0
+        for i in range(0, len(all_chunks), BATCH_SIZE):
+            batch = all_chunks[i:i + BATCH_SIZE]
+            texts = [c["text"] for c in batch]
+            embeddings = get_embeddings_batch(texts)
+            for chunk, emb in zip(batch, embeddings):
+                embedded_chunks.append({**chunk, "embedding": emb})
+            print(f"  Embedded batch {i // BATCH_SIZE + 1}/{total_batches}")
+
+        # Step 6: Fetch and summarise CONTRIBUTING.md
+        contributing_content = await fetch_contributing_md(owner, repo_name, client=client)
 
     # Step 7: Generate arch summary via LLM
     top_level_files = [p for p in all_paths if p.count("/") == 0]
