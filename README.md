@@ -13,7 +13,7 @@ An AI-powered, RAG (Retrieval-Augmented Generation) repository analysis and issu
 
 ---
 
-## 🌟 The Core Problem We Solve
+## 🌟 The Core Problem Solved
 Entering a massive, unfamiliar codebase to solve your first "good first issue" is incredibly daunting. Aspiring contributors are faced with hundreds of thousands of lines of code, lack of context, and complex folder structures. 
 
 **ContribAI** completely eliminates this onboarding friction. By integrating GitHub's API with vector-based semantic search and large language models (LLMs), ContribAI acts as an **on-demand AI co-pilot** that points you directly to the relevant files, explains the architecture, and breaks down exactly how to solve the issue.
