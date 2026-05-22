@@ -345,6 +345,9 @@ async def ingest_repository(
 
         # Step 6: Fetch and summarise CONTRIBUTING.md
         contributing_content = await fetch_contributing_md(owner, repo_name, client=client)
+        contributing_summary = ""
+        if contributing_content:
+            contributing_summary = await summarise_contributing_md(contributing_content)
 
     # Step 7: Generate arch summary via LLM
     top_level_files = [p for p in all_paths if p.count("/") == 0]
