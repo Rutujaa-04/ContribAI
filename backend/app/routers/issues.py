@@ -334,6 +334,7 @@ async def discover_issues(
     sort: Optional[str] = Query("recommended", description="recommended|newest|updated"),
     page: int = Query(1, ge=1),
     per_page: int = Query(10, ge=1, le=30),
+    refresh: bool = Query(False),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -355,7 +356,101 @@ async def discover_issues(
     # Use profile's experience level if not overridden by query param
     effective_level = level or current_user.experience_level or "beginner"
 
-    # Fetch from GitHub
+    # 1. Database-First Cache Lookup (Fast Path)
+    if not refresh:
+        from app.models.repository import Repository
+        from sqlalchemy import or_
+
+        # Build local DB query matching effective difficulty
+        query_db = db.query(Issue).filter(Issue.difficulty == effective_level)
+
+        # Join with Repository case-insensitively to match language
+        query_db = query_db.join(
+            Repository,
+            (func.lower(Repository.owner) == func.lower(Issue.repo_owner)) &
+            (func.lower(Repository.name) == func.lower(Issue.repo_name))
+        )
+
+        lang_filters = [Repository.primary_language.ilike(f"%{lang}%") for lang in lang_list]
+        if lang_filters:
+            query_db = query_db.filter(or_(*lang_filters))
+
+        total_count = query_db.count()
+
+        # If cache has a healthy amount of matching issues, return them instantly!
+        if total_count >= 10:
+            db_issues = query_db.offset((page - 1) * per_page).limit(per_page).all()
+
+            # Build saved_issue_ids for checking saved state
+            saved_issue_ids = set()
+            if db_issues:
+                db_issue_ids = [db_iss.id for db_iss in db_issues]
+                saved = (
+                    db.query(UserIssue.issue_id)
+                    .filter(
+                        UserIssue.user_id == current_user.id,
+                        UserIssue.issue_id.in_(db_issue_ids)
+                    )
+                    .all()
+                )
+                saved_issue_ids = {str(row[0]) for row in saved}
+
+            # Pre-fetch user's repo interaction counts for recommendation scoring
+            user_repo_counts = _get_user_repo_counts(current_user.id, db)
+
+            result_issues = []
+            for db_issue in db_issues:
+                rec_score = compute_recommendation_score(
+                    issue_data={
+                        "repo_owner": db_issue.repo_owner,
+                        "repo_name": db_issue.repo_name,
+                        "difficulty": db_issue.difficulty,
+                        "created_at": db_issue.created_at.isoformat(),
+                        "comment_count": db_issue.comment_count,
+                    },
+                    user=current_user,
+                    user_repo_counts=user_repo_counts,
+                    db=db,
+                )
+                result_issues.append({
+                    "id": str(db_issue.id),
+                    "github_issue_number": db_issue.github_issue_number,
+                    "repo_owner": db_issue.repo_owner,
+                    "repo_name": db_issue.repo_name,
+                    "title": db_issue.title,
+                    "body": (db_issue.body or "")[:500],  # Truncate for list view
+                    "labels": db_issue.labels,
+                    "difficulty": db_issue.difficulty,
+                    "estimated_hours": db_issue.estimated_hours,
+                    "comment_count": db_issue.comment_count,
+                    "html_url": db_issue.html_url,
+                    "created_at": db_issue.created_at.isoformat(),
+                    "is_saved": str(db_issue.id) in saved_issue_ids,
+                    "full_name": f"{db_issue.repo_owner}/{db_issue.repo_name}",
+                    "recommendation_score": rec_score,
+                    "recommended": rec_score >= 70,
+                })
+
+            # Sort
+            effective_sort = sort or "recommended"
+            if effective_sort == "recommended":
+                result_issues.sort(key=lambda x: x.get("recommendation_score", 0), reverse=True)
+            elif effective_sort == "newest":
+                result_issues.sort(key=lambda x: x.get("created_at", ""), reverse=True)
+
+            return {
+                "items": result_issues,
+                "total": total_count,
+                "page": page,
+                "per_page": per_page,
+                "has_next": page * per_page < total_count,
+                "query_languages": lang_list,
+                "query_level": effective_level,
+                "sort": effective_sort,
+                "using_cache": True,
+            }
+
+    # 2. Live GitHub Fetch (Cache Miss or Forced Refresh)
     use_fallback = False
     try:
         github_data = await search_github_issues(
@@ -378,24 +473,25 @@ async def discover_issues(
     if use_fallback:
         from app.models.repository import Repository
         from sqlalchemy import or_
-        
+
         # Build local DB query
         query_db = db.query(Issue).filter(Issue.difficulty == effective_level)
-        
-        # Join with Repository to filter by language
+
+        # Join with Repository case-insensitively to match language
         query_db = query_db.join(
             Repository,
-            (Repository.owner == Issue.repo_owner) & (Repository.name == Issue.repo_name)
+            (func.lower(Repository.owner) == func.lower(Issue.repo_owner)) &
+            (func.lower(Repository.name) == func.lower(Issue.repo_name))
         )
-        
+
         lang_filters = [Repository.primary_language.ilike(f"%{lang}%") for lang in lang_list]
         if lang_filters:
             query_db = query_db.filter(or_(*lang_filters))
-            
+
         # Get total count and paginate
         total_count = query_db.count()
         db_issues = query_db.offset((page - 1) * per_page).limit(per_page).all()
-        
+
         # Build saved_issue_ids for checking saved state
         saved_issue_ids = set()
         if db_issues:

@@ -20,6 +20,7 @@ import httpx
 from datetime import datetime
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 from pydantic import BaseModel
 
@@ -89,7 +90,7 @@ async def trigger_ingestion(
 
     # Check if already ingested recently
     existing = db.query(Repository).filter(
-        Repository.full_name == f"{owner}/{repo_name}"
+        func.lower(Repository.full_name) == f"{owner}/{repo_name}".lower()
     ).first()
 
     if existing and existing.last_ingested_at and not force_refresh:
@@ -130,11 +131,15 @@ async def get_repo_overview(
     from app.services.ingestion import ingest_repository
 
     full_name = f"{owner}/{repo}"
-    repo_obj = db.query(Repository).filter(Repository.full_name == full_name).first()
+    repo_obj = db.query(Repository).filter(
+        func.lower(Repository.full_name) == full_name.lower()
+    ).first()
 
     if not repo_obj or not repo_obj.last_ingested_at:
         result = await ingest_repository(owner, repo, db)
-        repo_obj = db.query(Repository).filter(Repository.full_name == full_name).first()
+        repo_obj = db.query(Repository).filter(
+            func.lower(Repository.full_name) == full_name.lower()
+        ).first()
         if not repo_obj:
             raise HTTPException(status_code=502, detail="Failed to ingest repository")
 
