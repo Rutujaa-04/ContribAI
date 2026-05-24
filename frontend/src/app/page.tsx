@@ -60,11 +60,10 @@ export default async function LandingPage() {
 
       {/* ── Hero ── */}
       <section className="max-w-5xl mx-auto px-6 pt-24 pb-20 text-center relative z-10 animate-slide-up">
-        {/* Glowing Badge */}
-        <div className="inline-flex items-center gap-2 bg-blue-500/10 text-blue-400 border border-blue-500/20 text-xs font-semibold px-4 py-1.5 rounded-full mb-8 shadow-[0_0_20px_rgba(59,130,246,0.08)]">
-          <span className="w-1.5 h-1.5 bg-blue-400 rounded-full animate-pulse shadow-[0_0_8px_#3B82F6]" />
-          AI-powered Open Source Guide
-        </div>
+        {/* Sleek Subtitle Header */}
+        <p className="text-xs font-bold tracking-widest text-blue-400 uppercase mb-4 animate-fade-in">
+          From First Issue to Merged PR
+        </p>
 
         {/* Headline */}
         <h1 className="text-4xl sm:text-6xl font-extrabold tracking-tight leading-[1.1] mb-8 bg-gradient-to-b from-white via-[#E2E8F0] to-[#94A3B8] bg-clip-text text-transparent">
@@ -104,28 +103,28 @@ export default async function LandingPage() {
           {/* Stat 1 */}
           <div className="bg-[#10141D]/50 border border-white/[0.03] rounded-2xl p-6 text-center hover:border-white/[0.08] transition-all duration-300">
             <div className="inline-flex p-2 rounded-lg bg-blue-500/10 mb-2">
-              <TrendingUp className="w-4 h-4 text-blue-400" />
+              <Activity className="w-4 h-4 text-blue-400" />
             </div>
-            <div className="text-3xl font-extrabold text-white">40%</div>
-            <div className="text-sm text-[#94A3B8] mt-1 font-medium">More successful contributions</div>
+            <div className="text-3xl font-extrabold text-white">&lt; 15s</div>
+            <div className="text-sm text-[#94A3B8] mt-1 font-medium">Repository Ingestion Speed</div>
           </div>
           
           {/* Stat 2 */}
           <div className="bg-[#10141D]/50 border border-white/[0.03] rounded-2xl p-6 text-center hover:border-white/[0.08] transition-all duration-300">
             <div className="inline-flex p-2 rounded-lg bg-indigo-500/10 mb-2">
-              <Clock className="w-4 h-4 text-indigo-400" />
+              <TrendingUp className="w-4 h-4 text-indigo-400" />
             </div>
-            <div className="text-3xl font-extrabold text-white">&lt;20 min</div>
-            <div className="text-sm text-[#94A3B8] mt-1 font-medium">To start your first matched issue</div>
+            <div className="text-3xl font-extrabold text-white">90%+</div>
+            <div className="text-sm text-[#94A3B8] mt-1 font-medium">Vector Search Precision</div>
           </div>
 
           {/* Stat 3 */}
           <div className="bg-[#10141D]/50 border border-white/[0.03] rounded-2xl p-6 text-center hover:border-white/[0.08] transition-all duration-300">
             <div className="inline-flex p-2 rounded-lg bg-cyan-500/10 mb-2">
-              <Activity className="w-4 h-4 text-cyan-400" />
+              <CheckCircle className="w-4 h-4 text-cyan-400" />
             </div>
-            <div className="text-3xl font-extrabold text-white">85%</div>
-            <div className="text-sm text-[#94A3B8] mt-1 font-medium">Positive feedback on AI maps</div>
+            <div className="text-3xl font-extrabold text-white">1-Click</div>
+            <div className="text-sm text-[#94A3B8] mt-1 font-medium">PR Description Generation</div>
           </div>
         </div>
       </section>
@@ -214,7 +213,7 @@ export default async function LandingPage() {
             <GitBranch className="w-4.5 h-4.5 text-[#64748B]" />
             <span className="font-semibold tracking-tight text-[#64748B]">ContribAI</span>
           </div>
-          <span>Built for developers, by developers © {new Date().getFullYear()}</span>
+          <span>Built by a developer, for developers © {new Date().getFullYear()}</span>
         </div>
       </footer>
     </div>
